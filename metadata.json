@@ -1,0 +1,6 @@
+{
+  "name": "VAYUMITRA (वायुमित्र)",
+  "description": "Urban Air Quality Assistant — Breathe Smarter. Live Cleaner. Stay Safer. Personalized air quality guidance, daily routines, indoor air checklists, green travel comparisons, and community pollution insights.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

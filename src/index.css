@@ -1,0 +1,333 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-display: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-sans: "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-forest-900: #132A1F;
+  --color-forest-800: #1B4332;
+  --color-forest-700: #2D6A4F;
+  --color-forest-600: #3D8B68;
+  --color-sage-100: #E6EFEA;
+  --color-sage-200: #CFE0D6;
+  --color-sage-600: #52796F;
+  --color-teal-700: #0F766E;
+  --color-teal-400: #2DD4BF;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+  }
+
+  body {
+    overflow-x: hidden;
+    transition: background-color 220ms ease, color 220ms ease;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  .dark body {
+    letter-spacing: 0.005em;
+  }
+
+  button, a, input, select, textarea {
+    outline: none;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex="0"]:focus-visible {
+    outline: 2px solid #2D6A4F;
+    outline-offset: 2px;
+  }
+
+  .dark button:focus-visible,
+  .dark a:focus-visible,
+  .dark input:focus-visible,
+  .dark select:focus-visible,
+  .dark textarea:focus-visible,
+  .dark [tabindex="0"]:focus-visible {
+    outline: 2px solid #2DD4BF;
+    outline-offset: 2px;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================================
+   VAYUMITRA LOGO ANIMATIONS (Pure Lightweight CSS/SVG)
+   ============================================================================ */
+
+@keyframes vmLeafFloat {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-1.4px) rotate(1.1deg);
+  }
+}
+
+@keyframes vmWindFlow {
+  0% {
+    stroke-dashoffset: 0;
+    opacity: 0.88;
+  }
+  50% {
+    stroke-dashoffset: -12;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: -24;
+    opacity: 0.88;
+  }
+}
+
+@keyframes vmLogoIntro {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes vmLogoLoadingPulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0px rgba(45, 212, 191, 0));
+  }
+  50% {
+    transform: scale(1.04);
+    filter: drop-shadow(0 0 10px rgba(45, 212, 191, 0.35));
+  }
+}
+
+.vayumitra-logo-mark {
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), filter 220ms ease;
+}
+
+.vayumitra-logo-root:hover .vayumitra-logo-mark,
+.group:hover .vayumitra-logo-mark {
+  transform: scale(1.03);
+  filter: drop-shadow(0 0 10px rgba(45, 160, 122, 0.38));
+}
+
+.dark .vayumitra-logo-root:hover .vayumitra-logo-mark,
+.dark .group:hover .vayumitra-logo-mark {
+  filter: drop-shadow(0 0 12px rgba(45, 212, 191, 0.38));
+}
+
+.vayumitra-logo-leaf {
+  transform-origin: 33px 31px;
+  animation: vmLeafFloat 4.6s ease-in-out infinite;
+}
+
+.vayumitra-logo-wind-primary {
+  stroke-dasharray: 44 10;
+  animation: vmWindFlow 5.2s linear infinite;
+}
+
+.vayumitra-logo-wind-secondary {
+  stroke-dasharray: 38 10;
+  animation: vmWindFlow 6.4s linear infinite reverse;
+}
+
+.vayumitra-logo-intro {
+  animation: vmLogoIntro 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.vayumitra-logo-loading .vayumitra-logo-mark {
+  animation: vmLogoLoadingPulse 1.8s ease-in-out infinite;
+}
+
+.vayumitra-logo-loading .vayumitra-logo-wind-primary {
+  animation-duration: 1.6s;
+}
+
+.vayumitra-logo-loading .vayumitra-logo-wind-secondary {
+  animation-duration: 2.1s;
+}
+
+/* ============================================================================
+   PAGE, DRAWER, TOAST, CHART & SKELETON MICRO-INTERACTIONS
+   ============================================================================ */
+
+@keyframes vayumitraFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vmFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vmSlideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes vmToastSlide {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes vmChartLineDraw {
+  from {
+    stroke-dashoffset: 1;
+    opacity: 0.35;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+@keyframes vmSkeletonShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes vmWindBreezeIcon {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(1.5px);
+  }
+}
+
+.animate-page-enter {
+  animation: vayumitraFadeUp 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-fade-in {
+  animation: vmFadeIn 180ms ease-out both;
+}
+
+.animate-slide-in-left {
+  animation: vmSlideInLeft 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-toast-enter {
+  animation: vmToastSlide 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.vm-chart-line-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: vmChartLineDraw 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.vayumitra-wind-icon-active {
+  animation: vmWindBreezeIcon 2.4s ease-in-out infinite;
+}
+
+/* Smooth Shimmer Skeletons */
+.vm-skeleton {
+  background-image: linear-gradient(
+    90deg,
+    rgba(218, 232, 224, 0.7) 25%,
+    rgba(235, 244, 239, 0.95) 50%,
+    rgba(218, 232, 224, 0.7) 75%
+  );
+  background-size: 200% 100%;
+  animation: vmSkeletonShimmer 1.6s ease-in-out infinite;
+}
+
+.dark .vm-skeleton {
+  background-image: linear-gradient(
+    90deg,
+    rgba(24, 38, 34, 0.85) 25%,
+    rgba(36, 56, 49, 0.95) 50%,
+    rgba(24, 38, 34, 0.85) 75%
+  );
+}
+
+/* Subtle Interactive Card Lift */
+.vm-card-interactive {
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 220ms ease;
+}
+
+.vm-card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px -12px rgba(27, 67, 50, 0.2);
+}
+
+.dark .vm-card-interactive:hover {
+  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.55);
+}
+
+/* Subtle Atmospheric Page Background Gradient */
+.vm-bg-atmosphere {
+  background-color: #F6F8F7;
+  background-image:
+    radial-gradient(ellipse 80% 45% at 15% -5%, rgba(45, 106, 79, 0.065), transparent 65%),
+    radial-gradient(ellipse 70% 40% at 88% 4%, rgba(15, 118, 110, 0.05), transparent 60%);
+}
+
+.dark .vm-bg-atmosphere {
+  background-color: #0C1311;
+  background-image:
+    radial-gradient(ellipse 80% 45% at 15% -5%, rgba(45, 106, 79, 0.14), transparent 65%),
+    radial-gradient(ellipse 70% 40% at 88% 4%, rgba(45, 212, 191, 0.07), transparent 60%);
+}
+
+/* Strict Accessibility: Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .vm-card-interactive:hover,
+  .vayumitra-logo-root:hover .vayumitra-logo-mark,
+  .group:hover .vayumitra-logo-mark {
+    transform: none !important;
+  }
+}
