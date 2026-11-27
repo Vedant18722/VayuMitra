@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -94,6 +94,12 @@ export const DashboardSection: React.FC = () => {
   const [coordLon, setCoordLon] = useState(activeLocation.longitude.toString());
   const [coordName, setCoordName] = useState('');
   const [coordError, setCoordError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCoordLat(activeLocation.latitude.toString());
+    setCoordLon(activeLocation.longitude.toString());
+    setCoordError(null);
+  }, [activeLocation.latitude, activeLocation.longitude]);
 
   // GPS Detection & Reverse Geocoding UI state
   const [geoStage, setGeoStage] = useState<'idle' | 'locating' | 'resolving'>('idle');

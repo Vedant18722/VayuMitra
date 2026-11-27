@@ -53,6 +53,9 @@ export const DailyPlannerSection: React.FC = () => {
       return;
     }
     setFormError(null);
+    setActionError(null);
+    setEditingId(null);
+    setEditDraft(null);
     regeneratePlan(planInputs);
   };
 
@@ -103,6 +106,10 @@ export const DailyPlannerSection: React.FC = () => {
 
   const deleteItem = (id: string) => {
     setActionError(null);
+    if (editingId === id) {
+      setEditingId(null);
+      setEditDraft(null);
+    }
     setPlanItems(planItems.filter((i) => i.id !== id));
     showToast('Activity removed from schedule.');
   };
@@ -158,7 +165,13 @@ export const DailyPlannerSection: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={resetPlan}
+            onClick={() => {
+              setFormError(null);
+              setActionError(null);
+              setEditingId(null);
+              setEditDraft(null);
+              resetPlan();
+            }}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md border border-[#DCE5E0] dark:border-[#263832] bg-white dark:bg-[#131E1A] text-sm font-medium text-[#16211D] dark:text-[#EDF3F0] hover:bg-[#E6EFEA] dark:hover:bg-[#1C2D27] transition-colors min-h-[40px] whitespace-nowrap"
           >
             <RotateCcw className="w-4 h-4" aria-hidden="true" />

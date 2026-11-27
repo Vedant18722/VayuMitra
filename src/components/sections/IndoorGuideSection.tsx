@@ -47,7 +47,7 @@ export const IndoorGuideSection: React.FC = () => {
       <section className="relative rounded-lg overflow-hidden border border-[#DCE5E0] dark:border-[#20302A] bg-[#132A1F]">
         <div className="aspect-[16/6] sm:aspect-[16/5] max-h-64 w-full relative">
           <ResilientImage
-            src="/src/assets/images/indoor_clean_living_room_1795419587536.jpg"
+            src="/images/indoor_clean_living_room_1795419587536.jpg"
             alt="Sunlit urban apartment living room with sealed glass window and matte-white HEPA air purifier"
             fallbackTitle="Clean Indoor Air Environment"
             className="w-full h-full object-cover"

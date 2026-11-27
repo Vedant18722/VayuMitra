@@ -182,16 +182,29 @@ export const HomePage: React.FC = () => {
               Switch to {preferences.theme === 'dark' ? 'Light' : 'Dark'} Theme
             </button>
             <div className="pt-2 border-t border-[#DCE5E0] dark:border-[#20302A] flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileNavOpen(false);
-                  openAuth('login');
-                }}
-                className="flex-1 px-4 py-2.5 rounded-md border border-[#DCE5E0] dark:border-[#263832] text-sm font-medium text-center min-h-[44px]"
-              >
-                Sign In
-              </button>
+              {authSession?.mode === 'demo_account' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileNavOpen(false);
+                    logoutSession();
+                  }}
+                  className="flex-1 px-4 py-2.5 rounded-md border border-[#DCE5E0] dark:border-[#263832] text-sm font-medium text-center min-h-[44px]"
+                >
+                  Log Out
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileNavOpen(false);
+                    openAuth('login');
+                  }}
+                  className="flex-1 px-4 py-2.5 rounded-md border border-[#DCE5E0] dark:border-[#263832] text-sm font-medium text-center min-h-[44px]"
+                >
+                  Sign In
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -255,7 +268,7 @@ export const HomePage: React.FC = () => {
             <div className="lg:col-span-6">
               <div className="relative rounded-xl overflow-hidden border border-[#DCE5E0] dark:border-[#20302A] h-full min-h-[280px] lg:min-h-[380px] bg-[#132A1F]">
                 <ResilientImage
-                  src="/src/assets/images/vayumitra_clean_skyline_1795428709598.jpg"
+                  src="/images/vayumitra_clean_skyline_1795428709598.jpg"
                   alt="Green tree-lined urban residential neighborhood in clear morning light with cyclists and pedestrians"
                   fallbackTitle="VAYUMITRA Urban Air Sustainability"
                   className="w-full h-full object-cover"

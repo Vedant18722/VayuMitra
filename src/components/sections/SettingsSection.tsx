@@ -90,7 +90,7 @@ export const SettingsSection: React.FC = () => {
       indoorConcerns,
     });
 
-    if (chosenCity.id !== activeLocation.id) {
+    if (chosenCity.id !== preferences.defaultLocation.id && chosenCity.id !== activeLocation.id) {
       await selectLocation(chosenCity);
     }
     showToast('Preferences saved on this device.');

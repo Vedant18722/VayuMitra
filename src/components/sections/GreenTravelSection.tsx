@@ -46,6 +46,10 @@ export const GreenTravelSection: React.FC = () => {
   const [customPassengersRaw, setCustomPassengersRaw] = useState('2');
   const [customTripsRaw, setCustomTripsRaw] = useState('10');
   const [customError, setCustomError] = useState<string | null>(null);
+  const [submittedCustomRoute, setSubmittedCustomRoute] = useState({
+    origin: `${activeLocation.name} Home`,
+    destination: `${activeLocation.name} Destination`,
+  });
   const [customResult, setCustomResult] = useState<CustomTravelResult | null>(() =>
     calculateCustomTravelComparison({
       origin: `${activeLocation.name} Home`,
@@ -110,21 +114,24 @@ export const GreenTravelSection: React.FC = () => {
     }
 
     const tripsNum = Number(customTripsRaw);
-    if (!Number.isFinite(tripsNum) || tripsNum < 1 || tripsNum > 28) {
-      setCustomError('One-way trips per week must be between 1 and 28.');
+    if (!Number.isFinite(tripsNum) || !Number.isInteger(tripsNum) || tripsNum < 1 || tripsNum > 28) {
+      setCustomError('One-way trips per week must be a whole number between 1 and 28.');
       setCustomResult(null);
       return;
     }
 
     setCustomError(null);
+    const resolvedOrigin = customOrigin.trim() || 'Origin';
+    const resolvedDest = customDest.trim() || 'Destination';
     const computed = calculateCustomTravelComparison({
-      origin: customOrigin.trim() || 'Origin',
-      destination: customDest.trim() || 'Destination',
+      origin: resolvedOrigin,
+      destination: resolvedDest,
       distanceKm: distCheck.value,
       vehicleType: customVehicle,
       passengers: paxNum,
-      tripsPerWeek: Math.round(tripsNum),
+      tripsPerWeek: tripsNum,
     });
+    setSubmittedCustomRoute({ origin: resolvedOrigin, destination: resolvedDest });
     setCustomResult(computed);
     ambientWindEngine.playCalculationConfirmation();
     showToast(
@@ -172,7 +179,7 @@ export const GreenTravelSection: React.FC = () => {
       <section className="relative rounded-lg overflow-hidden border border-[#DCE5E0] dark:border-[#20302A] bg-[#132A1F]">
         <div className="aspect-[16/5] max-h-52 w-full relative">
           <ResilientImage
-            src="/src/assets/images/urban_morning_canopy_1795419584342.jpg"
+            src="/images/urban_morning_canopy_1795419584342.jpg"
             alt="Tree-lined urban avenue in calm morning light"
             fallbackTitle="Low-Emission Urban Commuting"
             className="w-full h-full object-cover"
@@ -443,7 +450,7 @@ export const GreenTravelSection: React.FC = () => {
                   {customResult.totalTripCo2Kg.toFixed(2)} kg CO₂e
                 </p>
                 <p className="mt-1 text-xs text-[#4E5E58] dark:text-[#9BB0A7] truncate">
-                  {customResult.distanceKm.toFixed(1)} km · {customOrigin || 'Origin'} → {customDest || 'Destination'}
+                  {customResult.distanceKm.toFixed(1)} km · {submittedCustomRoute.origin} → {submittedCustomRoute.destination}
                 </p>
               </div>
 

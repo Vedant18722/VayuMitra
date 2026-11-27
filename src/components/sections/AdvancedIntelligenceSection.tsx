@@ -1037,8 +1037,9 @@ export const AdvancedIntelligenceSection: React.FC = () => {
                           strokeWidth="1.8"
                         />
                         <text
-                          x={pt.x + 10}
-                          y={pt.y + 4}
+                          x={loc.id === 'mumbai' || pt.x > 215 ? pt.x - 10 : pt.x + 10}
+                          y={loc.id === 'mumbai' ? pt.y - 2 : pt.y + 4}
+                          textAnchor={loc.id === 'mumbai' || pt.x > 215 ? 'end' : 'start'}
                           className="fill-[#16211D] dark:fill-[#EDF3F0] text-[10px] font-medium"
                         >
                           {loc.name}

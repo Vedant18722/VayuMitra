@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, ArrowLeft, CheckCircle2, Eye, EyeOff, Info, Moon, Sun } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { registerDemoAccount, signInDemoAccount } from '../../utils/auth';
@@ -25,6 +25,15 @@ export const AuthPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const redirectTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current !== null) {
+        window.clearTimeout(redirectTimerRef.current);
+      }
+    };
+  }, []);
 
   const switchMode = (next: 'login' | 'signup') => {
     setMode(next);
@@ -56,7 +65,11 @@ export const AuthPage: React.FC = () => {
           ? 'Local demo account created. Opening your dashboard...'
           : 'Signed in to your local demo session. Opening your dashboard...'
       );
-      setTimeout(() => {
+      if (redirectTimerRef.current !== null) {
+        window.clearTimeout(redirectTimerRef.current);
+      }
+      redirectTimerRef.current = window.setTimeout(() => {
+        redirectTimerRef.current = null;
         completeAuthSession(outcome.session);
       }, 280);
     } catch {

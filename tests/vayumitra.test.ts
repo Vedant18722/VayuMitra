@@ -1217,5 +1217,55 @@ test('7-Day Historical Air Quality Trend: aggregation, trajectory stats, demo fa
   assert.ok(emptyHtml.includes('Refresh Data'));
 });
 
+test('Audit regressions: production-safe /images assets exist in public/ and HomePage shows Log Out for signed-in demo session', () => {
+  const expectedImages = [
+    'vayumitra_clean_skyline_1795428709598.jpg',
+    'indoor_clean_living_room_1795419587536.jpg',
+    'urban_morning_canopy_1795419584342.jpg',
+  ];
+  for (const filename of expectedImages) {
+    const filePath = path.resolve(process.cwd(), 'public/images', filename);
+    assert.ok(fs.existsSync(filePath), `Missing public image asset for production build: ${filename}`);
+  }
+
+  const homeHtml = renderToStaticMarkup(React.createElement(AppProvider, null, React.createElement(HomePage)));
+  assert.ok(homeHtml.includes('/images/vayumitra_clean_skyline_1795428709598.jpg'));
+  assert.equal(homeHtml.includes('/src/assets/images/'), false);
+
+  const indoorHtml = renderToStaticMarkup(
+    React.createElement(AppProvider, null, React.createElement(IndoorGuideSection))
+  );
+  assert.ok(indoorHtml.includes('/images/indoor_clean_living_room_1795419587536.jpg'));
+  assert.equal(indoorHtml.includes('/src/assets/images/'), false);
+
+  const travelHtml = renderToStaticMarkup(
+    React.createElement(AppProvider, null, React.createElement(GreenTravelSection))
+  );
+  assert.ok(travelHtml.includes('/images/urban_morning_canopy_1795419584342.jpg'));
+  assert.equal(travelHtml.includes('/src/assets/images/'), false);
+
+  // Demo-account session renders Log Out on HomePage
+  const { mockStorage } = createMockLocalStorage();
+  mockStorage.setItem(
+    STORAGE_KEYS.AUTH_SESSION,
+    JSON.stringify({
+      mode: 'demo_account',
+      displayName: 'Audit User',
+      email: 'audit@example.com',
+      signedInAt: new Date().toISOString(),
+    })
+  );
+  const prevWindow = (globalThis as { window?: unknown }).window;
+  (globalThis as { window?: unknown }).window = { localStorage: mockStorage };
+  try {
+    const loggedInHomeHtml = renderToStaticMarkup(
+      React.createElement(AppProvider, null, React.createElement(HomePage))
+    );
+    assert.ok(loggedInHomeHtml.includes('Log Out'));
+  } finally {
+    (globalThis as { window?: unknown }).window = prevWindow;
+  }
+});
+
 
 
