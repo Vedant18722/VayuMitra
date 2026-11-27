@@ -8,6 +8,7 @@ import type {
   DailyPlanItem,
   ImpactRoutineInput,
   ImpactSummary,
+  LocationPreset,
   TravelComparisonInput,
   TravelModeEstimate,
 } from '../types';
@@ -297,24 +298,30 @@ function formatHourRange(isoTime: string): string {
 
 export function generateSmartDailyPlan(
   inputs: DailyPlanInputs,
-  airQuality: AirQualityPayload | null
+  airQuality: AirQualityPayload | null,
+  activeLocation?: LocationPreset
 ): DailyPlanItem[] {
+  const matchingAq =
+    airQuality && (!activeLocation || airQuality.location.id === activeLocation.id)
+      ? airQuality
+      : null;
+
   const hasRealHourly = Boolean(
-    airQuality &&
-      airQuality.status !== 'DEMO' &&
-      airQuality.hourly.length >= 6 &&
-      airQuality.hourly.some((h) => h.pm25 !== null)
+    matchingAq &&
+      matchingAq.status !== 'DEMO' &&
+      matchingAq.hourly.length >= 6 &&
+      matchingAq.hourly.some((h) => h.pm25 !== null)
   );
 
-  const usAqi = airQuality?.current.usAqi ?? null;
-  const pm25 = airQuality?.current.pm25 ?? null;
+  const usAqi = matchingAq?.current.usAqi ?? null;
+  const pm25 = matchingAq?.current.pm25 ?? null;
   const isHighPollution = usAqi !== null && usAqi > 150;
   const isModerateOrWorse = usAqi !== null && usAqi > 100;
 
   // Identify lowest hourly PM2.5 window strictly from real forecast data if available
   let bestHourlyWindow: { label: string; pm25: number; usAqi: number | null } | null = null;
-  if (hasRealHourly && airQuality) {
-    const daylightPoints = airQuality.hourly.slice(0, 24).filter((pt) => {
+  if (hasRealHourly && matchingAq) {
+    const daylightPoints = matchingAq.hourly.slice(0, 24).filter((pt) => {
       const hr = extractWallClockHour(pt.time);
       return pt.pm25 !== null && hr !== null && hr >= 6 && hr <= 21;
     });
@@ -332,7 +339,7 @@ export function generateSmartDailyPlan(
     }
   }
 
-  const locationLabel = airQuality?.location.name ?? 'your city';
+  const locationLabel = activeLocation?.name ?? matchingAq?.location.name ?? 'your city';
 
   const items: DailyPlanItem[] = [];
 

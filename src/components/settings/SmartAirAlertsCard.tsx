@@ -252,7 +252,7 @@ export const SmartAirAlertsCard: React.FC = () => {
           <p className="text-sm font-semibold text-[#16211D] dark:text-[#EDF3F0] flex flex-wrap items-center gap-2">
             <span>
               {activeLocation.name}
-              {activeLocation.region ? `, ${activeLocation.region}` : ''} · US EPA AQI (0–500)
+              {activeLocation.region ? `, ${activeLocation.region}` : ''} ({activeLocation.latitude.toFixed(4)}, {activeLocation.longitude.toFixed(4)}) · US EPA AQI (0–500)
             </span>
           </p>
           <p className="text-xs text-[#31403A] dark:text-[#C4D3CC] flex flex-wrap items-center gap-1.5">

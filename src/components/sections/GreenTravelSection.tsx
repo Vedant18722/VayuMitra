@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Calculator, Sliders } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import type { CommuteMode, CustomTravelResult, CustomVehicleType } from '../../types';
@@ -26,17 +26,57 @@ const MODE_BUTTONS: { id: TravelSelectorMode; label: string }[] = [
   { id: 'custom', label: 'Custom' },
 ];
 
+function validateWeeklyTrips(raw: string): { valid: boolean; value?: number; error?: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { valid: false, error: 'One-way trips per week must be a whole number between 1 and 28.' };
+  }
+  const num = Number(trimmed);
+  if (!Number.isFinite(num) || !Number.isInteger(num) || num < 1 || num > 28) {
+    return { valid: false, error: 'One-way trips per week must be a whole number between 1 and 28.' };
+  }
+  return { valid: true, value: num };
+}
+
+function formatSavingsDisplay(
+  avoidedKg: number,
+  decimals: number,
+  isBaseline = false
+): { text: string; toneClass: string } {
+  if (isBaseline) {
+    return { text: 'Baseline', toneClass: 'text-[#4E5E58] dark:text-[#9BB0A7]' };
+  }
+  if (avoidedKg > 0.0005) {
+    return {
+      text: `Saves ${avoidedKg.toFixed(decimals)} kg`,
+      toneClass: 'text-[#1B4332] dark:text-[#2DD4BF] font-medium',
+    };
+  }
+  if (avoidedKg < -0.0005) {
+    return {
+      text: `+${Math.abs(avoidedKg).toFixed(decimals)} kg higher`,
+      toneClass: 'text-[#5B6B65] dark:text-[#8DA299]',
+    };
+  }
+  return {
+    text: decimals === 0 ? '0 kg (Same)' : '0.00 kg (Same)',
+    toneClass: 'text-[#4E5E58] dark:text-[#9BB0A7]',
+  };
+}
+
 export const GreenTravelSection: React.FC = () => {
   const { preferences, activeLocation, showToast } = useApp();
 
   const [selectedMode, setSelectedMode] = useState<TravelSelectorMode>(preferences.commuteMode);
+  const prevCityRef = useRef(activeLocation.name);
 
   // Standard 5-mode planner state (preserved)
   const [origin, setOrigin] = useState(`${activeLocation.name} Residential Area`);
   const [destination, setDestination] = useState(`${activeLocation.name} Business District`);
   const [distanceRaw, setDistanceRaw] = useState('12');
-  const [tripsPerWeek, setTripsPerWeek] = useState(10);
+  const [tripsRaw, setTripsRaw] = useState('10');
   const [distanceError, setDistanceError] = useState<string | null>(null);
+  const [tripsError, setTripsError] = useState<string | null>(null);
 
   // Custom travel mode state
   const [customOrigin, setCustomOrigin] = useState(`${activeLocation.name} Home`);
@@ -61,10 +101,32 @@ export const GreenTravelSection: React.FC = () => {
     })
   );
 
+  // Keep untouched default route labels synchronized when the global active location changes
+  useEffect(() => {
+    const prevCity = prevCityRef.current;
+    const nextCity = activeLocation.name;
+    if (prevCity === nextCity) return;
+    prevCityRef.current = nextCity;
+
+    setOrigin((cur) => (cur === `${prevCity} Residential Area` ? `${nextCity} Residential Area` : cur));
+    setDestination((cur) => (cur === `${prevCity} Business District` ? `${nextCity} Business District` : cur));
+    setCustomOrigin((cur) => (cur === `${prevCity} Home` ? `${nextCity} Home` : cur));
+    setCustomDest((cur) => (cur === `${prevCity} Destination` ? `${nextCity} Destination` : cur));
+    setSubmittedCustomRoute((cur) => ({
+      origin: cur.origin === `${prevCity} Home` ? `${nextCity} Home` : cur.origin,
+      destination: cur.destination === `${prevCity} Destination` ? `${nextCity} Destination` : cur.destination,
+    }));
+  }, [activeLocation.name]);
+
   const validDistance = useMemo(() => {
     const check = validateTravelDistance(distanceRaw);
     return check.valid && check.value !== undefined ? check.value : null;
   }, [distanceRaw]);
+
+  const validTrips = useMemo(() => {
+    const check = validateWeeklyTrips(tripsRaw);
+    return check.valid && check.value !== undefined ? check.value : null;
+  }, [tripsRaw]);
 
   const handleDistanceChange = (val: string) => {
     setDistanceRaw(val);
@@ -72,18 +134,24 @@ export const GreenTravelSection: React.FC = () => {
     setDistanceError(check.valid ? null : check.error ?? 'Invalid distance.');
   };
 
+  const handleTripsChange = (val: string) => {
+    setTripsRaw(val);
+    const check = validateWeeklyTrips(val);
+    setTripsError(check.valid ? null : check.error ?? 'Invalid trips per week.');
+  };
+
   const standardMode: CommuteMode = selectedMode === 'custom' ? 'private_car' : selectedMode;
 
   const estimates = useMemo(() => {
-    if (selectedMode === 'custom' || validDistance === null) return [];
+    if (selectedMode === 'custom' || validDistance === null || validTrips === null) return [];
     return calculateTravelComparison({
       origin,
       destination,
       distanceKm: validDistance,
       currentMode: standardMode,
-      tripsPerWeek,
+      tripsPerWeek: validTrips,
     });
-  }, [destination, origin, selectedMode, standardMode, tripsPerWeek, validDistance]);
+  }, [destination, origin, selectedMode, standardMode, validDistance, validTrips]);
 
   const currentEstimate = estimates.find((e) => e.isCurrent);
   const recommendedAlternatives = estimates.filter((e) => e.isRecommended);
@@ -169,7 +237,12 @@ export const GreenTravelSection: React.FC = () => {
             Green Travel Planner
           </h1>
           <p className="mt-1 text-sm text-[#4E5E58] dark:text-[#9BB0A7]">
-            Compare low-emission commute options—including custom vehicles and passenger sharing—using transparent CO₂e factors.
+            Compare low-emission commute options in{' '}
+            <span className="font-medium text-[#16211D] dark:text-[#EDF3F0]">
+              {activeLocation.name}
+              {activeLocation.region ? `, ${activeLocation.region}` : ''}
+            </span>{' '}
+            ({activeLocation.latitude.toFixed(4)}, {activeLocation.longitude.toFixed(4)})—including custom vehicles and passenger sharing—using transparent CO₂e factors.
           </p>
         </div>
         <AmbientSoundControl compact className="self-start sm:self-auto" />
@@ -282,26 +355,26 @@ export const GreenTravelSection: React.FC = () => {
 
               <div>
                 <label htmlFor="travel-trips" className="block text-xs font-medium text-[#4E5E58] dark:text-[#9BB0A7] mb-1">
-                  One-Way Trips / Week
+                  One-Way Trips / Week (1–28)
                 </label>
                 <input
                   id="travel-trips"
                   type="number"
                   min={1}
                   max={28}
-                  value={tripsPerWeek}
-                  onChange={(e) =>
-                    setTripsPerWeek(Math.max(1, Math.min(28, Number(e.target.value) || 1)))
-                  }
+                  step={1}
+                  value={tripsRaw}
+                  onChange={(e) => handleTripsChange(e.target.value)}
+                  aria-invalid={Boolean(tripsError)}
                   className="w-full px-3 py-2 rounded-md border border-[#DCE5E0] dark:border-[#263832] bg-[#F6F8F7] dark:bg-[#0F1815] text-sm font-mono tabular-nums min-h-[40px]"
                 />
               </div>
             </div>
 
-            {distanceError && (
+            {(distanceError || tripsError) && (
               <p role="alert" className="text-xs text-red-700 dark:text-red-400 flex items-center gap-1.5">
                 <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                <span>{distanceError}</span>
+                <span>{distanceError ?? tripsError}</span>
               </p>
             )}
           </div>
@@ -355,7 +428,10 @@ export const GreenTravelSection: React.FC = () => {
                   min="0.1"
                   max="500"
                   value={customDistanceRaw}
-                  onChange={(e) => setCustomDistanceRaw(e.target.value)}
+                  onChange={(e) => {
+                    setCustomDistanceRaw(e.target.value);
+                    if (customError) setCustomError(null);
+                  }}
                   required
                   className="w-full px-3 py-2 rounded-md border border-[#DCE5E0] dark:border-[#263832] bg-[#F6F8F7] dark:bg-[#0F1815] text-sm font-mono tabular-nums min-h-[40px]"
                 />
@@ -368,7 +444,10 @@ export const GreenTravelSection: React.FC = () => {
                 <select
                   id="custom-vehicle"
                   value={customVehicle}
-                  onChange={(e) => setCustomVehicle(e.target.value as CustomVehicleType)}
+                  onChange={(e) => {
+                    setCustomVehicle(e.target.value as CustomVehicleType);
+                    if (customError) setCustomError(null);
+                  }}
                   className="w-full px-3 py-2 rounded-md border border-[#DCE5E0] dark:border-[#263832] bg-[#F6F8F7] dark:bg-[#0F1815] text-sm min-h-[40px]"
                 >
                   {Object.values(CUSTOM_VEHICLE_FACTORS).map((v) => (
@@ -390,7 +469,10 @@ export const GreenTravelSection: React.FC = () => {
                   max={50}
                   step={1}
                   value={customPassengersRaw}
-                  onChange={(e) => setCustomPassengersRaw(e.target.value)}
+                  onChange={(e) => {
+                    setCustomPassengersRaw(e.target.value);
+                    if (customError) setCustomError(null);
+                  }}
                   required
                   className="w-full px-3 py-2 rounded-md border border-[#DCE5E0] dark:border-[#263832] bg-[#F6F8F7] dark:bg-[#0F1815] text-sm font-mono tabular-nums min-h-[40px]"
                 />
@@ -407,7 +489,10 @@ export const GreenTravelSection: React.FC = () => {
                   max={28}
                   step={1}
                   value={customTripsRaw}
-                  onChange={(e) => setCustomTripsRaw(e.target.value)}
+                  onChange={(e) => {
+                    setCustomTripsRaw(e.target.value);
+                    if (customError) setCustomError(null);
+                  }}
                   required
                   className="w-full px-3 py-2 rounded-md border border-[#DCE5E0] dark:border-[#263832] bg-[#F6F8F7] dark:bg-[#0F1815] text-sm font-mono tabular-nums min-h-[40px]"
                 />
@@ -512,8 +597,8 @@ export const GreenTravelSection: React.FC = () => {
                     <tr className="border-b border-[#DCE5E0] dark:border-[#20302A] text-xs text-[#4E5E58] dark:text-[#9BB0A7]">
                       <th className="py-2 pr-3 font-medium">Option</th>
                       <th className="py-2 px-3 font-medium text-right">Per Pax / Trip</th>
-                      <th className="py-2 px-3 font-medium text-right">Diff vs. Custom</th>
-                      <th className="py-2 pl-3 font-medium text-right">Annual Saved</th>
+                      <th className="py-2 px-3 font-medium text-right">Savings / Diff (Trip)</th>
+                      <th className="py-2 pl-3 font-medium text-right">Annual Savings / Diff</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#DCE5E0] dark:divide-[#20302A]">
@@ -529,47 +614,43 @@ export const GreenTravelSection: React.FC = () => {
                       <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap">
                         {customResult.perPassengerTripCo2Kg.toFixed(2)} kg
                       </td>
-                      <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap">
+                      <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap text-[#4E5E58] dark:text-[#9BB0A7]">
                         Baseline
                       </td>
-                      <td className="py-3 pl-3 text-right font-mono tabular-nums whitespace-nowrap">
-                        0 kg
+                      <td className="py-3 pl-3 text-right font-mono tabular-nums whitespace-nowrap text-[#4E5E58] dark:text-[#9BB0A7]">
+                        Baseline
                       </td>
                     </tr>
-                    {customResult.alternatives.map((row) => (
-                      <tr key={row.mode} className="hover:bg-[#F9FBFA] dark:hover:bg-[#16221E]">
-                        <td className="py-3 pr-3">
-                          <div className="font-medium text-[#16211D] dark:text-[#EDF3F0]">
-                            {row.label}
-                            {row.isRecommended && (
-                              <span className="ml-2 text-xs font-medium text-[#0F766E] dark:text-[#2DD4BF]">
-                                · Lower-emission option
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-[#4E5E58] dark:text-[#9BB0A7] mt-0.5">
-                            {row.exposureNote}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap">
-                          {row.tripCo2Kg.toFixed(2)} kg
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap">
-                          {row.co2AvoidedPerTripKg > 0
-                            ? `-${row.co2AvoidedPerTripKg.toFixed(2)} kg`
-                            : row.co2AvoidedPerTripKg < 0
-                              ? `+${Math.abs(row.co2AvoidedPerTripKg).toFixed(2)} kg`
-                              : '0.00 kg'}
-                        </td>
-                        <td className="py-3 pl-3 text-right font-mono tabular-nums whitespace-nowrap">
-                          {row.co2AvoidedAnnualKg > 0
-                            ? `-${row.co2AvoidedAnnualKg.toFixed(0)} kg`
-                            : row.co2AvoidedAnnualKg < 0
-                              ? `+${Math.abs(row.co2AvoidedAnnualKg).toFixed(0)} kg`
-                              : '0 kg'}
-                        </td>
-                      </tr>
-                    ))}
+                    {customResult.alternatives.map((row) => {
+                      const tripDiff = formatSavingsDisplay(row.co2AvoidedPerTripKg, 2);
+                      const annualDiff = formatSavingsDisplay(row.co2AvoidedAnnualKg, 0);
+                      return (
+                        <tr key={row.mode} className="hover:bg-[#F9FBFA] dark:hover:bg-[#16221E]">
+                          <td className="py-3 pr-3">
+                            <div className="font-medium text-[#16211D] dark:text-[#EDF3F0]">
+                              {row.label}
+                              {row.isRecommended && (
+                                <span className="ml-2 text-xs font-medium text-[#0F766E] dark:text-[#2DD4BF]">
+                                  · Lower-emission option
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-[#4E5E58] dark:text-[#9BB0A7] mt-0.5">
+                              {row.exposureNote}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap">
+                            {row.tripCo2Kg.toFixed(2)} kg
+                          </td>
+                          <td className={`py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap ${tripDiff.toneClass}`}>
+                            {tripDiff.text}
+                          </td>
+                          <td className={`py-3 pl-3 text-right font-mono tabular-nums whitespace-nowrap ${annualDiff.toneClass}`}>
+                            {annualDiff.text}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </section>
@@ -581,7 +662,7 @@ export const GreenTravelSection: React.FC = () => {
           </div>
         )
       ) : /* RESULTS AREA: STANDARD 5 MODES (PRESERVED) */
-      validDistance !== null && currentEstimate ? (
+      validDistance !== null && validTrips !== null && currentEstimate ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white dark:bg-[#131E1A] border border-[#DCE5E0] dark:border-[#20302A] rounded-lg p-5">
@@ -602,7 +683,7 @@ export const GreenTravelSection: React.FC = () => {
                 {currentEstimate.tripCo2Kg.toFixed(2)} kg CO₂e
               </p>
               <p className="mt-1 text-xs font-mono tabular-nums text-[#4E5E58] dark:text-[#9BB0A7]">
-                ~{currentEstimate.annualCo2Kg.toFixed(0)} kg CO₂e / year ({tripsPerWeek} trips/wk × 50 wks)
+                ~{currentEstimate.annualCo2Kg.toFixed(0)} kg CO₂e / year ({validTrips} trips/wk × 50 wks)
               </p>
             </div>
 
@@ -617,7 +698,7 @@ export const GreenTravelSection: React.FC = () => {
                   </p>
                   <p className="mt-1 text-xs font-mono tabular-nums text-[#4E5E58] dark:text-[#9BB0A7]">
                     {recommendedAlternatives[0].co2AvoidedPerTripKg > 0
-                      ? `Avoids ~${recommendedAlternatives[0].co2AvoidedPerTripKg.toFixed(2)} kg CO₂e/trip (~${recommendedAlternatives[0].co2AvoidedAnnualKg.toFixed(0)} kg/yr)`
+                      ? `Saves ~${recommendedAlternatives[0].co2AvoidedPerTripKg.toFixed(2)} kg CO₂e/trip (~${recommendedAlternatives[0].co2AvoidedAnnualKg.toFixed(0)} kg/yr)`
                       : 'Comparable or zero tailpipe emissions'}
                   </p>
                 </>
@@ -627,7 +708,7 @@ export const GreenTravelSection: React.FC = () => {
                     Already on lowest-emission tier
                   </p>
                   <p className="mt-1 text-xs text-[#4E5E58] dark:text-[#9BB0A7]">
-                    Great choice for this distance range.
+                    Zero direct tailpipe emissions for this mode.
                   </p>
                 </>
               )}
@@ -652,57 +733,53 @@ export const GreenTravelSection: React.FC = () => {
                   <tr className="border-b border-[#DCE5E0] dark:border-[#20302A] text-xs text-[#4E5E58] dark:text-[#9BB0A7]">
                     <th className="py-2 pr-3 font-medium">Mode</th>
                     <th className="py-2 px-3 font-medium text-right">Per Trip</th>
-                    <th className="py-2 px-3 font-medium text-right">Avoided / Trip</th>
-                    <th className="py-2 pl-3 font-medium text-right">Annual Avoided</th>
+                    <th className="py-2 px-3 font-medium text-right">Savings / Diff (Trip)</th>
+                    <th className="py-2 pl-3 font-medium text-right">Annual Savings / Diff</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#DCE5E0] dark:divide-[#20302A]">
-                  {estimates.map((row) => (
-                    <tr
-                      key={row.mode}
-                      className={
-                        row.isCurrent
-                          ? 'bg-[#F3F7F5] dark:bg-[#182621]'
-                          : 'hover:bg-[#F9FBFA] dark:hover:bg-[#16221E]'
-                      }
-                    >
-                      <td className="py-3 pr-3">
-                        <div className="font-medium text-[#16211D] dark:text-[#EDF3F0]">
-                          {row.label}
-                          {row.isCurrent && (
-                            <span className="ml-2 text-xs font-normal text-[#4E5E58] dark:text-[#9BB0A7]">
-                              · Selected
-                            </span>
-                          )}
-                          {row.isRecommended && (
-                            <span className="ml-2 text-xs font-medium text-[#0F766E] dark:text-[#2DD4BF]">
-                              · Recommended
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-[#4E5E58] dark:text-[#9BB0A7] mt-0.5">
-                          {row.exposureNote}
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap">
-                        {row.tripCo2Kg.toFixed(2)} kg
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap">
-                        {row.co2AvoidedPerTripKg > 0
-                          ? `-${row.co2AvoidedPerTripKg.toFixed(2)} kg`
-                          : row.co2AvoidedPerTripKg < 0
-                            ? `+${Math.abs(row.co2AvoidedPerTripKg).toFixed(2)} kg`
-                            : '0.00 kg'}
-                      </td>
-                      <td className="py-3 pl-3 text-right font-mono tabular-nums whitespace-nowrap">
-                        {row.co2AvoidedAnnualKg > 0
-                          ? `-${row.co2AvoidedAnnualKg.toFixed(0)} kg`
-                          : row.co2AvoidedAnnualKg < 0
-                            ? `+${Math.abs(row.co2AvoidedAnnualKg).toFixed(0)} kg`
-                            : '0 kg'}
-                      </td>
-                    </tr>
-                  ))}
+                  {estimates.map((row) => {
+                    const tripDiff = formatSavingsDisplay(row.co2AvoidedPerTripKg, 2, row.isCurrent);
+                    const annualDiff = formatSavingsDisplay(row.co2AvoidedAnnualKg, 0, row.isCurrent);
+                    return (
+                      <tr
+                        key={row.mode}
+                        className={
+                          row.isCurrent
+                            ? 'bg-[#F3F7F5] dark:bg-[#182621]'
+                            : 'hover:bg-[#F9FBFA] dark:hover:bg-[#16221E]'
+                        }
+                      >
+                        <td className="py-3 pr-3">
+                          <div className="font-medium text-[#16211D] dark:text-[#EDF3F0]">
+                            {row.label}
+                            {row.isCurrent && (
+                              <span className="ml-2 text-xs font-normal text-[#4E5E58] dark:text-[#9BB0A7]">
+                                · Selected
+                              </span>
+                            )}
+                            {row.isRecommended && (
+                              <span className="ml-2 text-xs font-medium text-[#0F766E] dark:text-[#2DD4BF]">
+                                · Recommended
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-[#4E5E58] dark:text-[#9BB0A7] mt-0.5">
+                            {row.exposureNote}
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap">
+                          {row.tripCo2Kg.toFixed(2)} kg
+                        </td>
+                        <td className={`py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap ${tripDiff.toneClass}`}>
+                          {tripDiff.text}
+                        </td>
+                        <td className={`py-3 pl-3 text-right font-mono tabular-nums whitespace-nowrap ${annualDiff.toneClass}`}>
+                          {annualDiff.text}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </section>
@@ -710,7 +787,7 @@ export const GreenTravelSection: React.FC = () => {
         </>
       ) : (
         <div className="bg-white dark:bg-[#131E1A] border border-dashed border-[#DCE5E0] dark:border-[#263832] rounded-lg p-8 text-center text-sm text-[#4E5E58] dark:text-[#9BB0A7]">
-          Enter a valid positive distance (0.1–500 km) above to compare transport mode emissions.
+          Enter a valid distance (0.1–500 km) and weekly trips (1–28 whole number) above to compare transport mode emissions.
         </div>
       )}
 

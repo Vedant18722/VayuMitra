@@ -190,7 +190,8 @@ export const DailyPlannerSection: React.FC = () => {
             Routine Inputs
           </h2>
           <span className="text-xs font-mono tabular-nums text-[#4E5E58] dark:text-[#9BB0A7]">
-            Location: {activeLocation.name} · Feed: {airQuality?.status ?? 'LOADING'}
+            Location: {activeLocation.name}
+            {activeLocation.region ? `, ${activeLocation.region}` : ''} ({activeLocation.latitude.toFixed(4)}, {activeLocation.longitude.toFixed(4)}) · Feed: {airQuality?.status ?? 'LOADING'}
           </span>
         </div>
 

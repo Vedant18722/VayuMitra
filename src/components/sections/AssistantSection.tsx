@@ -57,12 +57,12 @@ export const AssistantSection: React.FC = () => {
     lastSubmittedRef.current = { text: check.sanitized.toLowerCase(), time: now };
 
     try {
-      const result = await queryAirAssistant(check.sanitized, airQuality, preferences);
+      const result = await queryAirAssistant(check.sanitized, airQuality, preferences, activeLocation);
       addAssistantMessage({
         id: `msg-${Date.now()}`,
         question: check.sanitized,
         createdAt: new Date().toISOString(),
-        locationName: airQuality?.location.name ?? activeLocation.name,
+        locationName: activeLocation.name,
         source: result.source,
         notice: result.notice,
         structured: result.structured,
@@ -117,7 +117,10 @@ export const AssistantSection: React.FC = () => {
           Context automatically included with your question
         </div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono tabular-nums">
-          <span>{airQuality?.location.name ?? activeLocation.name}</span>
+          <span>
+            {activeLocation.name}
+            {activeLocation.region ? `, ${activeLocation.region}` : ''} ({activeLocation.latitude.toFixed(4)}, {activeLocation.longitude.toFixed(4)})
+          </span>
           <span aria-hidden="true">·</span>
           <span>
             US AQI {usAqi !== null ? `${Math.round(usAqi)} (${aqiMeta.level})` : 'Unavailable'}
@@ -173,7 +176,7 @@ export const AssistantSection: React.FC = () => {
                 setQuestion(e.target.value);
                 if (validationError) setValidationError(null);
               }}
-              placeholder="Example: My parents are visiting Delhi this week—how should we plan indoor ventilation and morning walks?"
+              placeholder={`Example: My parents are visiting ${activeLocation.name} this week—how should we plan indoor ventilation and morning walks?`}
               className="w-full px-3.5 py-2.5 rounded-md border border-[#DCE5E0] dark:border-[#263832] bg-[#F6F8F7] dark:bg-[#0F1815] text-sm text-[#16211D] dark:text-[#EDF3F0] placeholder:text-[#6B7C76]"
             />
           </div>
@@ -214,7 +217,7 @@ export const AssistantSection: React.FC = () => {
             <div className="h-3 w-full bg-[#E6EFEA] dark:bg-[#1C2D27] rounded" />
             <div className="h-3 w-5/6 bg-[#E6EFEA] dark:bg-[#1C2D27] rounded" />
             <p className="text-xs text-[#4E5E58] dark:text-[#9BB0A7] pt-1">
-              Analyzing {airQuality?.location.name ?? activeLocation.name} conditions and household preferences...
+              Analyzing {activeLocation.name} conditions and household preferences...
             </p>
           </div>
         )}

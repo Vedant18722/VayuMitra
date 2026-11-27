@@ -129,9 +129,14 @@ export interface AssistantApiResponse {
 export async function queryAirAssistant(
   question: string,
   airQuality: AirQualityPayload | null,
-  preferences: UserPreferences
+  preferences: UserPreferences,
+  activeLocation?: LocationPreset
 ): Promise<AssistantApiResponse> {
-  const requestSignature = `${question.trim().toLowerCase()}::${airQuality?.location.id ?? 'none'}`;
+  const effectiveLocation = activeLocation ?? airQuality?.location ?? preferences.defaultLocation;
+  const matchingAq =
+    airQuality && airQuality.location.id === effectiveLocation.id ? airQuality : null;
+
+  const requestSignature = `${question.trim().toLowerCase()}::${effectiveLocation.id}`;
   if (inflightAssistantKey === requestSignature) {
     throw new Error('DUPLICATE_IN_FLIGHT');
   }
@@ -139,17 +144,17 @@ export async function queryAirAssistant(
   inflightAssistantKey = requestSignature;
   try {
     const context = {
-      locationName: airQuality?.location.name ?? preferences.defaultLocation.name,
-      region: airQuality?.location.region ?? preferences.defaultLocation.region,
-      dataStatus: airQuality?.status ?? 'DEMO',
-      usAqi: airQuality?.current.usAqi ?? null,
-      europeanAqi: airQuality?.current.europeanAqi ?? null,
-      pm25: airQuality?.current.pm25 ?? null,
-      pm10: airQuality?.current.pm10 ?? null,
-      no2: airQuality?.current.no2 ?? null,
-      o3: airQuality?.current.o3 ?? null,
-      so2: airQuality?.current.so2 ?? null,
-      dataTimestamp: airQuality?.dataTimestamp,
+      locationName: effectiveLocation.name,
+      region: effectiveLocation.region,
+      dataStatus: matchingAq?.status ?? 'UNAVAILABLE',
+      usAqi: matchingAq?.current.usAqi ?? null,
+      europeanAqi: matchingAq?.current.europeanAqi ?? null,
+      pm25: matchingAq?.current.pm25 ?? null,
+      pm10: matchingAq?.current.pm10 ?? null,
+      no2: matchingAq?.current.no2 ?? null,
+      o3: matchingAq?.current.o3 ?? null,
+      so2: matchingAq?.current.so2 ?? null,
+      dataTimestamp: matchingAq?.dataTimestamp,
       commuteMode: preferences.commuteMode,
       wakeTime: preferences.wakeTime,
       workStart: preferences.workStart,
@@ -171,7 +176,7 @@ export async function queryAirAssistant(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question, context }),
       },
-      25000
+      28000
     );
 
     if (ok && data?.structured) {
@@ -184,7 +189,7 @@ export async function queryAirAssistant(
     // Honest rule-based fallback with transparent error notice
     return {
       source: 'RULE_BASED_FALLBACK',
-      structured: buildRuleBasedAssistantAnswer(question, airQuality, preferences),
+      structured: buildRuleBasedAssistantAnswer(question, matchingAq, preferences, effectiveLocation),
       notice:
         data?.message ||
         'Gemini AI could not respond right now. Displaying context-aware rule-based guidance instead.',
@@ -195,7 +200,7 @@ export async function queryAirAssistant(
     }
     return {
       source: 'RULE_BASED_FALLBACK',
-      structured: buildRuleBasedAssistantAnswer(question, airQuality, preferences),
+      structured: buildRuleBasedAssistantAnswer(question, matchingAq, preferences, effectiveLocation),
       notice:
         'Unable to reach the AI endpoint (timeout or network error). Displaying context-aware rule-based guidance instead.',
     };

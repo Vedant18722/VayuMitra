@@ -45,9 +45,13 @@ export function validateAssistantQuestion(raw: string): ValidationResult & { san
 }
 
 export function validateTravelDistance(rawDistance: string | number): ValidationResult & { value?: number } {
-  const value = typeof rawDistance === 'number' ? rawDistance : Number(rawDistance);
-  if (!Number.isFinite(value) || value <= 0) {
-    return { valid: false, error: 'Travel distance must be a positive number greater than 0 km.' };
+  const rawStr = typeof rawDistance === 'number' ? String(rawDistance) : rawDistance.trim();
+  if (!rawStr) {
+    return { valid: false, error: 'Travel distance must be a positive number between 0.1 and 500 km.' };
+  }
+  const value = Number(rawStr);
+  if (!Number.isFinite(value) || value < 0.1) {
+    return { valid: false, error: 'Travel distance must be at least 0.1 km.' };
   }
   if (value > 500) {
     return { valid: false, error: 'Enter a single-trip urban or regional distance up to 500 km.' };
@@ -58,7 +62,8 @@ export function validateTravelDistance(rawDistance: string | number): Validation
 const PERSONAL_ADDRESS_PATTERNS = [
   /\b(?:flat|apt|apartment|house|door|plot|bungalow|villa|floor)\s*(?:no\.?|#)?\s*\d+/i,
   /\b\d{10}\b/,
-  /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/,
+  /(?:\+\d{1,3}[\s.-]?)?(?:\d[\s.-]?){10,12}/,
+  /\b[A-Za-z0-9._%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/,
   /\b\d{1,4}\s+[A-Za-z]+\s+(?:street|st\.|lane|ln\.|avenue|ave\.|apartment)\b/i,
 ];
 

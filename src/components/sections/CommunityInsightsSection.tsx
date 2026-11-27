@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Info, Search, ShieldAlert } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import type { CommunityCategory, CommunityStatus } from '../../types';
@@ -26,6 +26,7 @@ export const CommunityInsightsSection: React.FC = () => {
 
   const [category, setCategory] = useState<CommunityCategory>('construction_dust');
   const [city, setCity] = useState(activeLocation.name);
+  const prevCityRef = useRef(activeLocation.name);
   const [areaName, setAreaName] = useState('');
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
@@ -33,6 +34,14 @@ export const CommunityInsightsSection: React.FC = () => {
   const [filterCategory, setFilterCategory] = useState<'all' | CommunityCategory>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | CommunityStatus>('all');
   const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    const prevCity = prevCityRef.current;
+    const nextCity = activeLocation.name;
+    if (prevCity === nextCity) return;
+    prevCityRef.current = nextCity;
+    setCity((cur) => (cur === prevCity || !cur.trim() ? nextCity : cur));
+  }, [activeLocation.name]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -303,12 +312,16 @@ export const CommunityInsightsSection: React.FC = () => {
                       <span>{formatReadableTimestamp(rep.createdAt)}</span>
                       <span aria-hidden="true">·</span>
                       <span>Unverified community observation</span>
-                      {rep.isExample && (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span>Example entry</span>
-                        </>
-                      )}
+                      <span aria-hidden="true">·</span>
+                      <span
+                        className={
+                          rep.isExample
+                            ? 'text-[#5B6B65] dark:text-[#8DA299]'
+                            : 'font-semibold text-[#1B4332] dark:text-[#2DD4BF]'
+                        }
+                      >
+                        {rep.isExample ? 'Sample / Example entry' : 'User-submitted (saved locally)'}
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-2">

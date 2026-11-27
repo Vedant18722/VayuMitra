@@ -32,6 +32,9 @@ export function validatePasswordStrength(password: string): { valid: boolean; er
   if (!password) {
     return { valid: false, error: 'Please enter a password.' };
   }
+  if (!password.trim()) {
+    return { valid: false, error: 'Password cannot consist only of spaces.' };
+  }
   if (password.length < 8) {
     return { valid: false, error: 'Password must be at least 8 characters long.' };
   }

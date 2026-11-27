@@ -28,6 +28,12 @@ export const AuthPage: React.FC = () => {
   const redirectTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
+    setMode(authInitialTab);
+    setError(null);
+    setSuccessMessage(null);
+  }, [authInitialTab]);
+
+  useEffect(() => {
     return () => {
       if (redirectTimerRef.current !== null) {
         window.clearTimeout(redirectTimerRef.current);
@@ -39,6 +45,7 @@ export const AuthPage: React.FC = () => {
     setMode(next);
     setError(null);
     setSuccessMessage(null);
+    setConfirmPassword('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -185,7 +192,10 @@ export const AuthPage: React.FC = () => {
                     type="text"
                     autoComplete="name"
                     value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
+                    onChange={(e) => {
+                      setDisplayName(e.target.value);
+                      if (error) setError(null);
+                    }}
                     placeholder="e.g., Meena Sangale"
                     className="w-full px-3.5 py-2.5 rounded-md border border-[#DCE5E0] dark:border-[#263832] bg-[#F6F8F7] dark:bg-[#0F1815] text-sm min-h-[42px]"
                   />
@@ -201,7 +211,10 @@ export const AuthPage: React.FC = () => {
                   type="email"
                   autoComplete="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (error) setError(null);
+                  }}
                   placeholder="name@example.com"
                   className="w-full px-3.5 py-2.5 rounded-md border border-[#DCE5E0] dark:border-[#263832] bg-[#F6F8F7] dark:bg-[#0F1815] text-sm min-h-[42px]"
                 />
@@ -217,7 +230,10 @@ export const AuthPage: React.FC = () => {
                     type={showPassword ? 'text' : 'password'}
                     autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (error) setError(null);
+                    }}
                     placeholder="••••••••"
                     className="w-full pl-3.5 pr-11 py-2.5 rounded-md border border-[#DCE5E0] dark:border-[#263832] bg-[#F6F8F7] dark:bg-[#0F1815] text-sm min-h-[42px]"
                   />
@@ -243,7 +259,10 @@ export const AuthPage: React.FC = () => {
                       type={showConfirm ? 'text' : 'password'}
                       autoComplete="new-password"
                       value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        if (error) setError(null);
+                      }}
                       placeholder="Re-enter password"
                       className="w-full pl-3.5 pr-11 py-2.5 rounded-md border border-[#DCE5E0] dark:border-[#263832] bg-[#F6F8F7] dark:bg-[#0F1815] text-sm min-h-[42px]"
                     />

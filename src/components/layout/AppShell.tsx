@@ -342,9 +342,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            <span className="hidden md:inline text-xs text-[#4E5E58] dark:text-[#9BB0A7] whitespace-nowrap max-w-[180px] truncate">
+            <span className="hidden md:inline text-xs text-[#4E5E58] dark:text-[#9BB0A7] whitespace-nowrap max-w-[260px] truncate">
               {authSession?.mode === 'demo_account'
-                ? `${authSession.displayName} (Demo)`
+                ? `${activeLocation.name} · ${authSession.displayName} (Demo)`
                 : activeLocation.name}
             </span>
             <button

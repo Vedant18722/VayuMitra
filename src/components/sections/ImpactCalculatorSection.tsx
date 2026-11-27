@@ -8,6 +8,7 @@ import { ambientWindEngine } from '../../utils/soundEngine';
 
 export const ImpactCalculatorSection: React.FC = () => {
   const {
+    activeLocation,
     impactRoutine,
     updateImpactRoutine,
     impactLogs,
@@ -68,7 +69,12 @@ export const ImpactCalculatorSection: React.FC = () => {
             Environmental Impact Calculator
           </h1>
           <p className="mt-1 text-sm text-[#4E5E58] dark:text-[#9BB0A7]">
-            Compare your baseline and improved weekly routines with transparent, reproducible CO₂e and vehicle-km formulas.
+            Compare your baseline and improved weekly routines in{' '}
+            <span className="font-medium text-[#16211D] dark:text-[#EDF3F0]">
+              {activeLocation.name}
+              {activeLocation.region ? `, ${activeLocation.region}` : ''}
+            </span>{' '}
+            ({activeLocation.latitude.toFixed(4)}, {activeLocation.longitude.toFixed(4)}) with transparent, reproducible CO₂e and vehicle-km formulas.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

@@ -3,17 +3,26 @@ import { RotateCcw } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { INDOOR_CHECKLIST_ITEMS, INDOOR_GUIDE_ROOMS } from '../../data/indoorGuideData';
 import type { IndoorRoomId } from '../../types';
+import { getUsAqiCategory } from '../../utils/aqi';
 import { ResilientImage } from '../ui/ResilientImage';
 import { MoreInfo } from '../ui/MoreInfo';
 
 export const IndoorGuideSection: React.FC = () => {
-  const { indoorChecklist, toggleIndoorChecklistItem, resetIndoorChecklist } = useApp();
+  const {
+    activeLocation,
+    airQuality,
+    indoorChecklist,
+    toggleIndoorChecklistItem,
+    resetIndoorChecklist,
+  } = useApp();
   const [activeRoom, setActiveRoom] = useState<IndoorRoomId>('bedroom');
   const [checklistScope, setChecklistScope] = useState<'room' | 'all'>('room');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'done'>('all');
 
   const currentRoom =
     INDOOR_GUIDE_ROOMS.find((r) => r.id === activeRoom) ?? INDOOR_GUIDE_ROOMS[0];
+  const usAqi = airQuality?.current.usAqi ?? null;
+  const aqiMeta = getUsAqiCategory(usAqi);
 
   const totalChecklistCount = INDOOR_CHECKLIST_ITEMS.length;
   const totalCompletedCount = INDOOR_CHECKLIST_ITEMS.filter(
@@ -39,7 +48,16 @@ export const IndoorGuideSection: React.FC = () => {
           Indoor Air Guide
         </h1>
         <p className="mt-1 text-sm text-[#4E5E58] dark:text-[#9BB0A7]">
-          Evidence-based filtration, ventilation, cooking emission, dust, and humidity practices for every indoor space.
+          Evidence-based filtration, ventilation, cooking emission, dust, and humidity practices for homes in{' '}
+          <span className="font-medium text-[#16211D] dark:text-[#EDF3F0]">
+            {activeLocation.name}
+            {activeLocation.region ? `, ${activeLocation.region}` : ''}
+          </span>
+          .
+        </p>
+        <p className="mt-1 text-xs font-mono tabular-nums text-[#5B6B65] dark:text-[#8DA299]">
+          Synced location: {activeLocation.name} ({activeLocation.latitude.toFixed(4)}, {activeLocation.longitude.toFixed(4)}) · Outdoor US AQI:{' '}
+          {usAqi !== null ? `${Math.round(usAqi)} (${aqiMeta.level})` : 'Loading / Unavailable'}
         </p>
       </div>
 

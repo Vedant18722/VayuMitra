@@ -248,6 +248,10 @@ export const AdvancedIntelligenceSection: React.FC = () => {
             Six interactive tools tailored to{' '}
             <span className="font-medium text-[#16211D] dark:text-[#EDF3F0]">
               {activeLocation.name}
+              {activeLocation.region ? `, ${activeLocation.region}` : ''}
+            </span>{' '}
+            <span className="font-mono text-xs tabular-nums">
+              ({activeLocation.latitude.toFixed(4)}, {activeLocation.longitude.toFixed(4)})
             </span>{' '}
             for personal exposure, alerts, activity timing, indoor protection, regional layers, and weekly clean-air habits.
           </p>

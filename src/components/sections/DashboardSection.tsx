@@ -59,7 +59,7 @@ function formatLocationSourceLabel(loc: LocationPreset): string {
     return loc.locationProvider ? `GPS · ${loc.locationProvider}` : 'Browser GPS';
   }
   if (loc.locationSource === 'search') {
-    return 'Manual City Search · Open-Meteo Geocoding';
+    return loc.locationProvider ? `Manual Search · ${loc.locationProvider}` : 'Manual City Search';
   }
   if (loc.locationSource === 'manual') {
     return 'Manual Coordinates';
@@ -141,7 +141,7 @@ export const DashboardSection: React.FC = () => {
     await selectLocation({
       ...loc,
       locationSource: 'search',
-      locationProvider: 'Open-Meteo Geocoding',
+      locationProvider: loc.id.startsWith('nom-') ? 'OpenStreetMap Nominatim' : 'Open-Meteo Geocoding',
       locationUpdatedAt: new Date().toISOString(),
     });
     showToast(`Location updated to ${formatFullLocationName(loc)}.`);

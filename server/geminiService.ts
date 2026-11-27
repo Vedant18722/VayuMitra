@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import type { AssistantStructuredAnswer } from '../src/types/index.ts';
 
 export interface AssistantRequestContext {
@@ -33,6 +33,8 @@ export interface GeminiAssistantFailure {
   code: string;
   message: string;
 }
+
+const GEMINI_TIMEOUT_MS = 22000;
 
 const SYSTEM_INSTRUCTION = `You are VAYUMITRA (वायुमित्र), a trustworthy, scientifically accurate Urban Air Quality Assistant helping families navigate winter smog and urban air pollution.
 
@@ -76,6 +78,30 @@ export function sanitizeAssistantPromptField(input: string, maxLength: number): 
     .slice(0, maxLength);
 }
 
+function stripJsonCodeFences(raw: string): string {
+  const trimmed = raw.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  return fenced ? fenced[1].trim() : trimmed;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('GEMINI_REQUEST_TIMEOUT'));
+    }, timeoutMs);
+    promise.then(
+      (val) => {
+        clearTimeout(timer);
+        resolve(val);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 function extractHttpStatus(err: unknown): number {
   if (typeof err === 'object' && err !== null) {
     const maybeStatus = (err as { status?: unknown; statusCode?: unknown }).status ??
@@ -83,8 +109,10 @@ function extractHttpStatus(err: unknown): number {
     if (typeof maybeStatus === 'number') return maybeStatus;
   }
   const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('GEMINI_REQUEST_TIMEOUT') || msg.includes('AbortError')) return 504;
   if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) return 429;
   if (msg.includes('503') || msg.includes('UNAVAILABLE')) return 503;
+  if (msg.includes('404') || msg.includes('NOT_FOUND')) return 404;
   if (msg.includes('403') || msg.includes('PERMISSION_DENIED')) return 403;
   if (msg.includes('400') || msg.includes('API_KEY_INVALID')) return 400;
   return 500;
@@ -140,58 +168,62 @@ export async function askGeminiAirAssistant(
 
   const userPrompt = `<context_data>\n${safeContextBlock}\n</context_data>\n\n<user_question>\n${sanitizedQuestion}\n</user_question>\n\nProvide a practical, context-grounded answer filling all six required JSON fields.`;
 
-  const maxRetries = 2;
+  const maxRetries = 1;
   let lastStatus = 500;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: userPrompt,
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              situation: {
-                type: Type.STRING,
-                description: 'Summary of the current local air quality context and relevant user profile factors.',
+      const response = await withTimeout(
+        ai.models.generateContent({
+          model: 'gemini-4-hydrogen',
+          contents: userPrompt,
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION,
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                situation: {
+                  type: Type.STRING,
+                  description: 'Summary of the current local air quality context and relevant user profile factors.',
+                },
+                recommendation: {
+                  type: Type.STRING,
+                  description: 'Clear, practical action steps tailored to the user question and readings.',
+                },
+                explanation: {
+                  type: Type.STRING,
+                  description: 'Scientific and environmental rationale behind the recommendation.',
+                },
+                expectedBenefit: {
+                  type: Type.STRING,
+                  description: 'Practical health-exposure or sustainability benefit expected from following this guidance.',
+                },
+                estimatedImpact: {
+                  type: Type.STRING,
+                  description: 'Measurable or realistic impact estimate with assumptions (or honest note when not directly quantifiable).',
+                },
+                limitationsAndUncertainty: {
+                  type: Type.STRING,
+                  description: 'Data caveats (model grid resolution vs street sensors, demo status if applicable, non-medical scope).',
+                },
               },
-              recommendation: {
-                type: Type.STRING,
-                description: 'Clear, practical action steps tailored to the user question and readings.',
-              },
-              explanation: {
-                type: Type.STRING,
-                description: 'Scientific and environmental rationale behind the recommendation.',
-              },
-              expectedBenefit: {
-                type: Type.STRING,
-                description: 'Practical health-exposure or sustainability benefit expected from following this guidance.',
-              },
-              estimatedImpact: {
-                type: Type.STRING,
-                description: 'Measurable or realistic impact estimate with assumptions (or honest note when not directly quantifiable).',
-              },
-              limitationsAndUncertainty: {
-                type: Type.STRING,
-                description: 'Data caveats (model grid resolution vs street sensors, demo status if applicable, non-medical scope).',
-              },
+              required: [
+                'situation',
+                'recommendation',
+                'explanation',
+                'expectedBenefit',
+                'estimatedImpact',
+                'limitationsAndUncertainty',
+              ],
             },
-            required: [
-              'situation',
-              'recommendation',
-              'explanation',
-              'expectedBenefit',
-              'estimatedImpact',
-              'limitationsAndUncertainty',
-            ],
           },
-        },
-      });
+        }),
+        GEMINI_TIMEOUT_MS
+      );
 
-      const rawText = (response.text ?? '').trim();
+      const rawText = stripJsonCodeFences(response.text ?? '');
       if (!rawText) {
         throw new Error('Empty response from Gemini model');
       }
@@ -223,19 +255,27 @@ export async function askGeminiAirAssistant(
       const status = extractHttpStatus(err);
       lastStatus = status;
 
-      // Bounded exponential backoff ONLY for temporary 429 or 503 errors
+      // Bounded backoff ONLY for temporary 429 or 503 errors
       if ((status === 429 || status === 503) && attempt < maxRetries) {
         const delayMs = 800 * Math.pow(2, attempt);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
         continue;
       }
 
+      if (status === 504) {
+        return {
+          ok: false,
+          statusCode: 504,
+          code: 'UPSTREAM_TIMEOUT',
+          message: 'Gemini AI took too long to respond. Displayed context-aware rule-based guidance instead.',
+        };
+      }
       if (status === 429) {
         return {
           ok: false,
           statusCode: 429,
           code: 'RATE_LIMITED',
-          message: 'Gemini AI is currently rate-limited (HTTP 429). Displayed honest rule-based guidance instead.',
+          message: 'Gemini AI is currently rate-limited (HTTP 429). Displayed context-aware rule-based guidance instead.',
         };
       }
       if (status === 503) {
@@ -243,7 +283,15 @@ export async function askGeminiAirAssistant(
           ok: false,
           statusCode: 503,
           code: 'SERVICE_UNAVAILABLE',
-          message: 'Gemini AI is temporarily unavailable (HTTP 503). Displayed honest rule-based guidance instead.',
+          message: 'Gemini AI is temporarily unavailable (HTTP 503). Displayed context-aware rule-based guidance instead.',
+        };
+      }
+      if (status === 404) {
+        return {
+          ok: false,
+          statusCode: 502,
+          code: 'MODEL_UNAVAILABLE',
+          message: 'Configured Gemini AI model is temporarily unavailable. Displayed context-aware rule-based guidance instead.',
         };
       }
       if (status === 403 || status === 400) {
@@ -260,7 +308,7 @@ export async function askGeminiAirAssistant(
         ok: false,
         statusCode: 502,
         code: 'UPSTREAM_ERROR',
-        message: 'Gemini AI could not complete the request right now. Displayed honest rule-based guidance instead.',
+        message: 'Gemini AI could not complete the request right now. Displayed context-aware rule-based guidance instead.',
       };
     }
   }
@@ -269,6 +317,6 @@ export async function askGeminiAirAssistant(
     ok: false,
     statusCode: lastStatus,
     code: 'RETRY_EXHAUSTED',
-    message: 'Gemini AI remained temporarily busy after retries. Displayed honest rule-based guidance instead.',
+    message: 'Gemini AI remained temporarily busy after retries. Displayed context-aware rule-based guidance instead.',
   };
 }

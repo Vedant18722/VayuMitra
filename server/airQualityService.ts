@@ -24,7 +24,7 @@ const geoCache = new Map<string, { results: GeocodingResult[]; cachedAtMs: numbe
 const reverseGeoCache = new Map<string, { result: ReverseGeocodeResult; cachedAtMs: number }>();
 
 function buildCacheKey(lat: number, lon: number): string {
-  return `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  return `${lat.toFixed(3)},${lon.toFixed(3)}`;
 }
 
 async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 8000): Promise<Response> {

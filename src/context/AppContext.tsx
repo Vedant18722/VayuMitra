@@ -173,11 +173,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const hasSavedPlanItemsRef = useRef<boolean>(
     readStorage<DailyPlanItem[]>(STORAGE_KEYS.DAILY_PLAN_ITEMS, []).length > 0
   );
+  const planLocationIdRef = useRef<string>(activeLocation.id);
+  const planNeedsAqHydrationRef = useRef<boolean>(!hasSavedPlanItemsRef.current);
 
   const [planItems, setPlanItemsState] = useState<DailyPlanItem[]>(() => {
     const saved = readStorage<DailyPlanItem[]>(STORAGE_KEYS.DAILY_PLAN_ITEMS, []);
     if (saved.length > 0) return saved;
-    return generateSmartDailyPlan(planInputs, null);
+    return generateSmartDailyPlan(planInputs, null, activeLocation);
   });
 
   const [indoorChecklist, setIndoorChecklist] = useState<Record<string, boolean>>(() =>
@@ -277,8 +279,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const payload = await fetchAirQuality(loc, forceRefresh);
         if (requestId !== aqRequestSeqRef.current) return null;
-        setAirQuality(payload);
-        return payload;
+        const syncedPayload: AirQualityPayload = {
+          ...payload,
+          location: {
+            ...loc,
+            timezone: payload.location.timezone || loc.timezone,
+          },
+        };
+        setAirQuality(syncedPayload);
+        return syncedPayload;
       } catch (err) {
         if (requestId !== aqRequestSeqRef.current) return null;
         setAirQualityError(
@@ -330,9 +339,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [rawNotificationPermission, notificationSettings.enabled]
   );
 
-  // Evaluate Smart Air Alerts whenever fresh live air-quality data arrives
+  // Evaluate Smart Air Alerts whenever fresh live air-quality data arrives for the active location
   useEffect(() => {
-    if (!airQuality || !notificationSettings.enabled || rawNotificationPermission !== 'granted') {
+    if (
+      !airQuality ||
+      airQuality.location.id !== activeLocation.id ||
+      !notificationSettings.enabled ||
+      rawNotificationPermission !== 'granted'
+    ) {
       return;
     }
 
@@ -406,11 +420,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     loadAirQuality,
   ]);
 
-  // Hydrate unmodified default daily plan once live air-quality forecast loads
+  // Keep Smart Daily Planner synchronized whenever the active location changes or fresh air-quality loads
   useEffect(() => {
-    if (!airQuality || hasSavedPlanItemsRef.current) return;
-    setPlanItemsState(generateSmartDailyPlan(planInputs, airQuality));
-  }, [airQuality, planInputs]);
+    const locationChanged = planLocationIdRef.current !== activeLocation.id;
+    if (locationChanged) {
+      planLocationIdRef.current = activeLocation.id;
+      planNeedsAqHydrationRef.current = true;
+      const matchingAq = airQuality && airQuality.location.id === activeLocation.id ? airQuality : null;
+      setPlanItemsState((prev) => {
+        const customItems = prev.filter((item) => item.isCustom);
+        const refreshed = [...generateSmartDailyPlan(planInputs, matchingAq, activeLocation), ...customItems];
+        if (hasSavedPlanItemsRef.current) {
+          writeStorage(STORAGE_KEYS.DAILY_PLAN_ITEMS, refreshed);
+        }
+        return refreshed;
+      });
+      if (matchingAq) {
+        planNeedsAqHydrationRef.current = false;
+      }
+      return;
+    }
+
+    if (!airQuality || airQuality.location.id !== activeLocation.id) return;
+    if (!planNeedsAqHydrationRef.current && hasSavedPlanItemsRef.current) return;
+
+    setPlanItemsState((prev) => {
+      const customItems = prev.filter((item) => item.isCustom);
+      const refreshed = [...generateSmartDailyPlan(planInputs, airQuality, activeLocation), ...customItems];
+      if (hasSavedPlanItemsRef.current) {
+        writeStorage(STORAGE_KEYS.DAILY_PLAN_ITEMS, refreshed);
+      }
+      return refreshed;
+    });
+    planNeedsAqHydrationRef.current = false;
+  }, [activeLocation, airQuality, planInputs]);
 
   const openHome = useCallback(() => {
     setViewMode('home');
@@ -484,6 +527,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ...loc,
         locationUpdatedAt: loc.locationUpdatedAt ?? new Date().toISOString(),
       };
+      const prev = activeLocationRef.current;
+      const isDifferentLocation =
+        stamped.id !== prev.id ||
+        Math.abs(stamped.latitude - prev.latitude) > 0.0001 ||
+        Math.abs(stamped.longitude - prev.longitude) > 0.0001;
+
+      if (isDifferentLocation) {
+        // Clear previous city's readings immediately so stale data (e.g. Delhi) never leaks into the new city
+        setAirQuality(null);
+        setAirQualityError(null);
+      }
+
+      activeLocationRef.current = stamped;
       setActiveLocation(stamped);
       writeStorage(STORAGE_KEYS.ACTIVE_LOCATION, stamped);
       await loadAirQuality(stamped, forceRefresh);
@@ -515,6 +571,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const resetPreferencesToDefault = useCallback(() => {
     setPreferences(DEFAULT_PREFERENCES);
     writeStorage(STORAGE_KEYS.PREFERENCES, DEFAULT_PREFERENCES);
+    if (activeLocationRef.current.id !== INDIAN_METRO_PRESETS[0].id) {
+      setAirQuality(null);
+      setAirQualityError(null);
+    }
+    activeLocationRef.current = INDIAN_METRO_PRESETS[0];
     setActiveLocation(INDIAN_METRO_PRESETS[0]);
     writeStorage(STORAGE_KEYS.ACTIVE_LOCATION, INDIAN_METRO_PRESETS[0]);
     void loadAirQuality(INDIAN_METRO_PRESETS[0], false);
@@ -524,11 +585,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const clearAllData = useCallback(() => {
     clearAllVayumitraStorage();
     setPreferences(DEFAULT_PREFERENCES);
+    setAirQuality(null);
+    setAirQualityError(null);
+    activeLocationRef.current = INDIAN_METRO_PRESETS[0];
     setActiveLocation(INDIAN_METRO_PRESETS[0]);
     setAssistantHistory([]);
     setPlanInputsState(DEFAULT_PLAN_INPUTS);
     hasSavedPlanItemsRef.current = false;
-    setPlanItemsState(generateSmartDailyPlan(DEFAULT_PLAN_INPUTS, null));
+    planLocationIdRef.current = INDIAN_METRO_PRESETS[0].id;
+    planNeedsAqHydrationRef.current = true;
+    setPlanItemsState(generateSmartDailyPlan(DEFAULT_PLAN_INPUTS, null, INDIAN_METRO_PRESETS[0]));
     setIndoorChecklist({});
     setImpactRoutine(DEFAULT_IMPACT_ROUTINE);
     setImpactLogs(DEFAULT_IMPACT_LOGS);
@@ -572,14 +638,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const regeneratePlan = useCallback(
     (overrideInputs?: DailyPlanInputs) => {
       const activeInputs = overrideInputs ?? planInputs;
-      const generated = generateSmartDailyPlan(activeInputs, airQuality);
+      const generated = generateSmartDailyPlan(activeInputs, airQuality, activeLocation);
       hasSavedPlanItemsRef.current = true;
+      planLocationIdRef.current = activeLocation.id;
+      planNeedsAqHydrationRef.current = !airQuality || airQuality.location.id !== activeLocation.id;
       setPlanInputsState(activeInputs);
       setPlanItemsState(generated);
       saveDailyPlanToStorage(activeInputs, generated);
-      showToast('Daily plan regenerated using your schedule and available air quality data.');
+      showToast(`Daily plan regenerated for ${activeLocation.name} using your schedule and available air quality data.`);
     },
-    [airQuality, planInputs, showToast]
+    [activeLocation, airQuality, planInputs, showToast]
   );
 
   const savePlan = useCallback(() => {
@@ -597,13 +665,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       commuteMode: preferences.commuteMode,
       outdoorPreference: preferences.outdoorPreference,
     };
-    const fresh = generateSmartDailyPlan(baseInputs, airQuality);
+    const fresh = generateSmartDailyPlan(baseInputs, airQuality, activeLocation);
     hasSavedPlanItemsRef.current = false;
+    planLocationIdRef.current = activeLocation.id;
+    planNeedsAqHydrationRef.current = !airQuality || airQuality.location.id !== activeLocation.id;
     setPlanInputsState(baseInputs);
     setPlanItemsState(fresh);
     saveDailyPlanToStorage(baseInputs, fresh);
     showToast('Daily schedule reset to recommended defaults.');
-  }, [airQuality, preferences, showToast]);
+  }, [activeLocation, airQuality, preferences, showToast]);
 
   const toggleIndoorChecklistItem = useCallback((id: string) => {
     setIndoorChecklist((prev) => {

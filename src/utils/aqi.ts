@@ -3,6 +3,7 @@ import type {
   AssistantStructuredAnswer,
   DailyHistoryPoint,
   HourlyDataPoint,
+  LocationPreset,
   PollutantKey,
   UserPreferences,
 } from '../types';
@@ -492,14 +493,19 @@ export function computeWeeklyHistoryStats(
 export function buildRuleBasedAssistantAnswer(
   question: string,
   airQuality: AirQualityPayload | null,
-  preferences: UserPreferences
+  preferences: UserPreferences,
+  activeLocation?: LocationPreset
 ): AssistantStructuredAnswer {
   const q = question.toLowerCase();
-  const loc = airQuality?.location.name ?? preferences.defaultLocation.name;
-  const usAqi = airQuality?.current.usAqi ?? null;
-  const pm25 = airQuality?.current.pm25 ?? null;
-  const pm10 = airQuality?.current.pm10 ?? null;
-  const statusTag = airQuality?.status ?? 'DEMO';
+  const matchingAq =
+    airQuality && (!activeLocation || airQuality.location.id === activeLocation.id)
+      ? airQuality
+      : null;
+  const loc = activeLocation?.name ?? matchingAq?.location.name ?? preferences.defaultLocation.name;
+  const usAqi = matchingAq?.current.usAqi ?? null;
+  const pm25 = matchingAq?.current.pm25 ?? null;
+  const pm10 = matchingAq?.current.pm10 ?? null;
+  const statusTag = matchingAq?.status ?? 'UNAVAILABLE';
   const cat = getUsAqiCategory(usAqi);
   const hasSensitive =
     preferences.householdAgeGroups.includes('children_under_12') ||
