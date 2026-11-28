@@ -207,7 +207,25 @@ export function readStorage<T>(key: string, fallback: T): T {
     if (typeof window === 'undefined' || !window.localStorage) return fallback;
     const raw = window.localStorage.getItem(key);
     if (!raw) return fallback;
-    return JSON.parse(raw) as T;
+    const parsed: unknown = JSON.parse(raw);
+
+    if (Array.isArray(fallback)) {
+      return (Array.isArray(parsed) ? parsed : fallback) as T;
+    }
+
+    if (fallback !== null && typeof fallback === 'object') {
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return fallback;
+      }
+      // Shallow-merge defaults so newly added preference/settings keys stay populated across upgrades
+      return { ...fallback, ...(parsed as Record<string, unknown>) } as T;
+    }
+
+    if (fallback !== null && typeof parsed !== typeof fallback) {
+      return fallback;
+    }
+
+    return parsed as T;
   } catch {
     return fallback;
   }

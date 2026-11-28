@@ -14,6 +14,8 @@ import { AmbientSoundControl } from '../ui/AmbientSoundControl';
 import { ResilientImage } from '../ui/ResilientImage';
 import { MoreInfo } from '../ui/MoreInfo';
 import { ambientWindEngine } from '../../utils/soundEngine';
+import { TravelComparisonTable } from './travel/TravelComparisonTable';
+import { CustomTravelResults } from './travel/CustomTravelResults';
 
 type TravelSelectorMode = CommuteMode | 'custom';
 
@@ -38,39 +40,13 @@ function validateWeeklyTrips(raw: string): { valid: boolean; value?: number; err
   return { valid: true, value: num };
 }
 
-function formatSavingsDisplay(
-  avoidedKg: number,
-  decimals: number,
-  isBaseline = false
-): { text: string; toneClass: string } {
-  if (isBaseline) {
-    return { text: 'Baseline', toneClass: 'text-[#4E5E58] dark:text-[#9BB0A7]' };
-  }
-  if (avoidedKg > 0.0005) {
-    return {
-      text: `Saves ${avoidedKg.toFixed(decimals)} kg`,
-      toneClass: 'text-[#1B4332] dark:text-[#2DD4BF] font-medium',
-    };
-  }
-  if (avoidedKg < -0.0005) {
-    return {
-      text: `+${Math.abs(avoidedKg).toFixed(decimals)} kg higher`,
-      toneClass: 'text-[#5B6B65] dark:text-[#8DA299]',
-    };
-  }
-  return {
-    text: decimals === 0 ? '0 kg (Same)' : '0.00 kg (Same)',
-    toneClass: 'text-[#4E5E58] dark:text-[#9BB0A7]',
-  };
-}
-
 export const GreenTravelSection: React.FC = () => {
   const { preferences, activeLocation, showToast } = useApp();
 
   const [selectedMode, setSelectedMode] = useState<TravelSelectorMode>(preferences.commuteMode);
   const prevCityRef = useRef(activeLocation.name);
 
-  // Standard 5-mode planner state (preserved)
+  // Standard 5-mode planner state
   const [origin, setOrigin] = useState(`${activeLocation.name} Residential Area`);
   const [destination, setDestination] = useState(`${activeLocation.name} Business District`);
   const [distanceRaw, setDistanceRaw] = useState('12');
@@ -156,14 +132,18 @@ export const GreenTravelSection: React.FC = () => {
   const currentEstimate = estimates.find((e) => e.isCurrent);
   const recommendedAlternatives = estimates.filter((e) => e.isRecommended);
 
-  const standardChartData = estimates.map((e) => ({
-    id: e.mode,
-    label: e.label,
-    value: e.tripCo2Kg,
-    unit: 'kg CO₂e / trip',
-    sublabel: e.isCurrent ? 'Current mode' : e.isRecommended ? 'Recommended' : undefined,
-    highlighted: e.isRecommended,
-  }));
+  const standardChartData = useMemo(
+    () =>
+      estimates.map((e) => ({
+        id: e.mode,
+        label: e.label,
+        value: e.tripCo2Kg,
+        unit: 'kg CO₂e / trip',
+        sublabel: e.isCurrent ? 'Current mode' : e.isRecommended ? 'Recommended' : undefined,
+        highlighted: e.isRecommended,
+      })),
+    [estimates]
+  );
 
   const handleCalculateCustom = (e: React.FormEvent) => {
     e.preventDefault();
@@ -181,9 +161,9 @@ export const GreenTravelSection: React.FC = () => {
       return;
     }
 
-    const tripsNum = Number(customTripsRaw);
-    if (!Number.isFinite(tripsNum) || !Number.isInteger(tripsNum) || tripsNum < 1 || tripsNum > 28) {
-      setCustomError('One-way trips per week must be a whole number between 1 and 28.');
+    const tripsCheck = validateWeeklyTrips(customTripsRaw);
+    if (!tripsCheck.valid || tripsCheck.value === undefined) {
+      setCustomError(tripsCheck.error ?? 'One-way trips per week must be a whole number between 1 and 28.');
       setCustomResult(null);
       return;
     }
@@ -197,7 +177,7 @@ export const GreenTravelSection: React.FC = () => {
       distanceKm: distCheck.value,
       vehicleType: customVehicle,
       passengers: paxNum,
-      tripsPerWeek: tripsNum,
+      tripsPerWeek: tripsCheck.value,
     });
     setSubmittedCustomRoute({ origin: resolvedOrigin, destination: resolvedDest });
     setCustomResult(computed);
@@ -206,28 +186,6 @@ export const GreenTravelSection: React.FC = () => {
       `Calculated custom trip: ${computed.totalTripCo2Kg.toFixed(2)} kg CO₂e total (${computed.perPassengerTripCo2Kg.toFixed(2)} kg / passenger).`
     );
   };
-
-  const customChartData = useMemo(() => {
-    if (!customResult) return [];
-    return [
-      {
-        id: 'custom-current',
-        label: `Custom: ${customResult.vehicleLabel} (${customResult.passengers} pax)`,
-        value: customResult.perPassengerTripCo2Kg,
-        unit: 'kg CO₂e / pax-trip',
-        sublabel: 'Your custom trip (per passenger)',
-        highlighted: false,
-      },
-      ...customResult.alternatives.map((alt) => ({
-        id: alt.mode,
-        label: alt.label,
-        value: alt.tripCo2Kg,
-        unit: 'kg CO₂e / pax-trip',
-        sublabel: alt.isRecommended ? 'Recommended lower-emission' : undefined,
-        highlighted: alt.isRecommended,
-      })),
-    ];
-  }, [customResult]);
 
   return (
     <div className="space-y-8 animate-page-enter">
@@ -522,147 +480,10 @@ export const GreenTravelSection: React.FC = () => {
         )}
       </section>
 
-      {/* RESULTS AREA: CUSTOM MODE */}
+      {/* RESULTS AREA */}
       {selectedMode === 'custom' ? (
-        customResult ? (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white dark:bg-[#131E1A] border border-[#DCE5E0] dark:border-[#20302A] rounded-lg p-5">
-                <p className="text-xs text-[#4E5E58] dark:text-[#9BB0A7]">
-                  Estimated Total CO₂e ({customResult.vehicleLabel})
-                </p>
-                <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-[#16211D] dark:text-[#EDF3F0]">
-                  {customResult.totalTripCo2Kg.toFixed(2)} kg CO₂e
-                </p>
-                <p className="mt-1 text-xs text-[#4E5E58] dark:text-[#9BB0A7] truncate">
-                  {customResult.distanceKm.toFixed(1)} km · {submittedCustomRoute.origin} → {submittedCustomRoute.destination}
-                </p>
-              </div>
-
-              <div className="bg-white dark:bg-[#131E1A] border border-[#DCE5E0] dark:border-[#20302A] rounded-lg p-5">
-                <p className="text-xs text-[#4E5E58] dark:text-[#9BB0A7]">
-                  Emissions per Passenger ({customResult.passengers}{' '}
-                  {customResult.passengers === 1 ? 'passenger' : 'passengers'})
-                </p>
-                <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-[#16211D] dark:text-[#EDF3F0]">
-                  {customResult.perPassengerTripCo2Kg.toFixed(2)} kg CO₂e
-                </p>
-                <p className="mt-1 text-xs font-mono tabular-nums text-[#4E5E58] dark:text-[#9BB0A7]">
-                  ~{customResult.perPassengerAnnualCo2Kg.toFixed(0)} kg CO₂e / pax-year (50 wks)
-                </p>
-              </div>
-
-              <div className="bg-white dark:bg-[#131E1A] border border-[#DCE5E0] dark:border-[#20302A] rounded-lg p-5">
-                <p className="text-xs text-[#4E5E58] dark:text-[#9BB0A7]">
-                  Potential Savings (Per Passenger)
-                </p>
-                {customResult.bestLowerAlternative ? (
-                  <>
-                    <p className="mt-1 text-lg font-semibold text-[#1B4332] dark:text-[#2DD4BF]">
-                      Switch to {customResult.bestLowerAlternative.label}
-                    </p>
-                    <p className="mt-1 text-xs font-mono tabular-nums text-[#4E5E58] dark:text-[#9BB0A7]">
-                      Saves ~{customResult.bestLowerAlternative.co2AvoidedPerTripKg.toFixed(2)} kg/trip (~
-                      {customResult.bestLowerAlternative.co2AvoidedAnnualKg.toFixed(0)} kg/yr)
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="mt-1 text-lg font-semibold text-[#1B4332] dark:text-[#2DD4BF]">
-                      Already on a very low-emission tier
-                    </p>
-                    <p className="mt-1 text-xs text-[#4E5E58] dark:text-[#9BB0A7]">
-                      Per-passenger emissions are below standard motorized averages for this distance.
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <section className="lg:col-span-5 bg-white dark:bg-[#131E1A] border border-[#DCE5E0] dark:border-[#20302A] rounded-lg p-5 sm:p-6">
-                <BarComparisonChart
-                  title="Per-Passenger Emissions Comparison"
-                  caption="Custom vehicle vs. standard urban alternatives"
-                  data={customChartData}
-                />
-              </section>
-
-              <section className="lg:col-span-7 bg-white dark:bg-[#131E1A] border border-[#DCE5E0] dark:border-[#20302A] rounded-lg p-5 sm:p-6 overflow-x-auto">
-                <h2 className="text-sm font-semibold text-[#16211D] dark:text-[#EDF3F0] mb-3">
-                  Comparison with Travel Alternatives (Per Passenger)
-                </h2>
-                <table className="w-full text-left border-collapse text-sm min-w-[520px]">
-                  <thead>
-                    <tr className="border-b border-[#DCE5E0] dark:border-[#20302A] text-xs text-[#4E5E58] dark:text-[#9BB0A7]">
-                      <th className="py-2 pr-3 font-medium">Option</th>
-                      <th className="py-2 px-3 font-medium text-right">Per Pax / Trip</th>
-                      <th className="py-2 px-3 font-medium text-right">Savings / Diff (Trip)</th>
-                      <th className="py-2 pl-3 font-medium text-right">Annual Savings / Diff</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#DCE5E0] dark:divide-[#20302A]">
-                    <tr className="bg-[#F3F7F5] dark:bg-[#182621]">
-                      <td className="py-3 pr-3">
-                        <div className="font-medium text-[#16211D] dark:text-[#EDF3F0]">
-                          Custom: {customResult.vehicleLabel} ({customResult.passengers} pax)
-                        </div>
-                        <div className="text-xs text-[#4E5E58] dark:text-[#9BB0A7] mt-0.5">
-                          Total vehicle trip: {customResult.totalTripCo2Kg.toFixed(2)} kg CO₂e
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap">
-                        {customResult.perPassengerTripCo2Kg.toFixed(2)} kg
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap text-[#4E5E58] dark:text-[#9BB0A7]">
-                        Baseline
-                      </td>
-                      <td className="py-3 pl-3 text-right font-mono tabular-nums whitespace-nowrap text-[#4E5E58] dark:text-[#9BB0A7]">
-                        Baseline
-                      </td>
-                    </tr>
-                    {customResult.alternatives.map((row) => {
-                      const tripDiff = formatSavingsDisplay(row.co2AvoidedPerTripKg, 2);
-                      const annualDiff = formatSavingsDisplay(row.co2AvoidedAnnualKg, 0);
-                      return (
-                        <tr key={row.mode} className="hover:bg-[#F9FBFA] dark:hover:bg-[#16221E]">
-                          <td className="py-3 pr-3">
-                            <div className="font-medium text-[#16211D] dark:text-[#EDF3F0]">
-                              {row.label}
-                              {row.isRecommended && (
-                                <span className="ml-2 text-xs font-medium text-[#0F766E] dark:text-[#2DD4BF]">
-                                  · Lower-emission option
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-xs text-[#4E5E58] dark:text-[#9BB0A7] mt-0.5">
-                              {row.exposureNote}
-                            </div>
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap">
-                            {row.tripCo2Kg.toFixed(2)} kg
-                          </td>
-                          <td className={`py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap ${tripDiff.toneClass}`}>
-                            {tripDiff.text}
-                          </td>
-                          <td className={`py-3 pl-3 text-right font-mono tabular-nums whitespace-nowrap ${annualDiff.toneClass}`}>
-                            {annualDiff.text}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </section>
-            </div>
-          </>
-        ) : (
-          <div className="bg-white dark:bg-[#131E1A] border border-dashed border-[#DCE5E0] dark:border-[#263832] rounded-lg p-8 text-center text-sm text-[#4E5E58] dark:text-[#9BB0A7]">
-            Enter valid distance and passenger details above, then click <strong>Calculate</strong> to estimate your custom trip emissions.
-          </div>
-        )
-      ) : /* RESULTS AREA: STANDARD 5 MODES (PRESERVED) */
-      validDistance !== null && validTrips !== null && currentEstimate ? (
+        <CustomTravelResults result={customResult} route={submittedCustomRoute} />
+      ) : validDistance !== null && validTrips !== null && currentEstimate ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white dark:bg-[#131E1A] border border-[#DCE5E0] dark:border-[#20302A] rounded-lg p-5">
@@ -724,65 +545,13 @@ export const GreenTravelSection: React.FC = () => {
               />
             </section>
 
-            <section className="lg:col-span-7 bg-white dark:bg-[#131E1A] border border-[#DCE5E0] dark:border-[#20302A] rounded-lg p-5 sm:p-6 overflow-x-auto">
-              <h2 className="text-sm font-semibold text-[#16211D] dark:text-[#EDF3F0] mb-3">
-                Mode-by-Mode Breakdown (Estimates)
-              </h2>
-              <table className="w-full text-left border-collapse text-sm min-w-[520px]">
-                <thead>
-                  <tr className="border-b border-[#DCE5E0] dark:border-[#20302A] text-xs text-[#4E5E58] dark:text-[#9BB0A7]">
-                    <th className="py-2 pr-3 font-medium">Mode</th>
-                    <th className="py-2 px-3 font-medium text-right">Per Trip</th>
-                    <th className="py-2 px-3 font-medium text-right">Savings / Diff (Trip)</th>
-                    <th className="py-2 pl-3 font-medium text-right">Annual Savings / Diff</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#DCE5E0] dark:divide-[#20302A]">
-                  {estimates.map((row) => {
-                    const tripDiff = formatSavingsDisplay(row.co2AvoidedPerTripKg, 2, row.isCurrent);
-                    const annualDiff = formatSavingsDisplay(row.co2AvoidedAnnualKg, 0, row.isCurrent);
-                    return (
-                      <tr
-                        key={row.mode}
-                        className={
-                          row.isCurrent
-                            ? 'bg-[#F3F7F5] dark:bg-[#182621]'
-                            : 'hover:bg-[#F9FBFA] dark:hover:bg-[#16221E]'
-                        }
-                      >
-                        <td className="py-3 pr-3">
-                          <div className="font-medium text-[#16211D] dark:text-[#EDF3F0]">
-                            {row.label}
-                            {row.isCurrent && (
-                              <span className="ml-2 text-xs font-normal text-[#4E5E58] dark:text-[#9BB0A7]">
-                                · Selected
-                              </span>
-                            )}
-                            {row.isRecommended && (
-                              <span className="ml-2 text-xs font-medium text-[#0F766E] dark:text-[#2DD4BF]">
-                                · Recommended
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-[#4E5E58] dark:text-[#9BB0A7] mt-0.5">
-                            {row.exposureNote}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap">
-                          {row.tripCo2Kg.toFixed(2)} kg
-                        </td>
-                        <td className={`py-3 px-3 text-right font-mono tabular-nums whitespace-nowrap ${tripDiff.toneClass}`}>
-                          {tripDiff.text}
-                        </td>
-                        <td className={`py-3 pl-3 text-right font-mono tabular-nums whitespace-nowrap ${annualDiff.toneClass}`}>
-                          {annualDiff.text}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </section>
+            <TravelComparisonTable
+              title="Mode-by-Mode Breakdown (Estimates)"
+              modeColumnLabel="Mode"
+              perTripColumnLabel="Per Trip"
+              recommendedTag="Recommended"
+              rows={estimates}
+            />
           </div>
         </>
       ) : (

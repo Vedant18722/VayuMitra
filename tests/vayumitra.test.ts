@@ -83,6 +83,17 @@ import { CommunityInsightsSection } from '../src/components/sections/CommunityIn
 import { AdvancedIntelligenceSection } from '../src/components/sections/AdvancedIntelligenceSection.tsx';
 import { SettingsSection } from '../src/components/sections/SettingsSection.tsx';
 import { AppShell } from '../src/components/layout/AppShell.tsx';
+import { ErrorBoundary } from '../src/components/ui/ErrorBoundary.tsx';
+import { BoundedTtlCache } from '../server/httpUtils.ts';
+import { composeReadablePlace } from '../server/geocodingService.ts';
+import {
+  fetchAirQuality,
+  isValidAirQualityPayload,
+  isValidAssistantStructuredAnswer,
+  isValidGeocodingResult,
+  queryAirAssistant,
+  searchCityLocations,
+} from '../src/services/api.ts';
 
 function createMockLocalStorage() {
   const backing = new Map<string, string>();
@@ -1730,6 +1741,190 @@ test('Reliability Update 5: Community insights privacy validation, sample vs use
     (globalThis as { window?: unknown }).window = prevWindow;
   }
 });
+
+test('Code Quality & Reliability: BoundedTtlCache LRU eviction, TTL expiry, and stale fallback', () => {
+  const cache = new BoundedTtlCache<string>(2, 1000);
+  const t0 = 10_000;
+
+  cache.set('a', 'alpha', t0);
+  cache.set('b', 'beta', t0 + 10);
+  assert.equal(cache.size, 2);
+
+  // Accessing 'a' refreshes its recency so 'b' becomes the least-recently-used entry
+  assert.equal(cache.getFresh('a', t0 + 50)?.value, 'alpha');
+
+  // Adding 'c' evicts 'b', keeping 'a' and 'c'
+  cache.set('c', 'gamma', t0 + 60);
+  assert.equal(cache.size, 2);
+  assert.equal(cache.getStaleAllowed('b'), null);
+  assert.equal(cache.getFresh('a', t0 + 100)?.value, 'alpha');
+  assert.equal(cache.getFresh('c', t0 + 100)?.value, 'gamma');
+
+  // After TTL expires, getFresh returns null while getStaleAllowed still returns the stale value
+  assert.equal(cache.getFresh('a', t0 + 1500), null);
+  assert.equal(cache.getStaleAllowed('a')?.value, 'alpha');
+});
+
+test('Code Quality & Reliability: composeReadablePlace deduplicates area, city, and state segments', () => {
+  const distinct = composeReadablePlace({
+    area: 'Induri',
+    city: 'Talegaon Dabhade',
+    state: 'Maharashtra',
+    country: 'India',
+  });
+  assert.equal(distinct.displayName, 'Induri, Talegaon Dabhade, Maharashtra, India');
+  assert.equal(distinct.area, 'Induri');
+  assert.equal(distinct.name, 'Talegaon Dabhade');
+
+  // Duplicate area === city and state === city should be collapsed cleanly
+  const deduped = composeReadablePlace({
+    area: 'Delhi',
+    city: 'Delhi',
+    state: 'Delhi',
+    country: 'India',
+  });
+  assert.equal(deduped.displayName, 'Delhi, India');
+  assert.equal(deduped.area, '');
+});
+
+test('Code Quality & Reliability: client API runtime guards and graceful handling of malformed/non-JSON responses', async () => {
+  const validDemo = buildDemoFallbackPayload(INDIAN_METRO_PRESETS[0], 'Fixture');
+  assert.equal(isValidAirQualityPayload(validDemo), true);
+  assert.equal(isValidAirQualityPayload(null), false);
+  assert.equal(isValidAirQualityPayload({ status: 'FORECAST' }), false);
+  assert.equal(
+    isValidAirQualityPayload({
+      ...validDemo,
+      location: { ...validDemo.location, latitude: Number.NaN },
+    }),
+    false
+  );
+
+  assert.equal(
+    isValidAssistantStructuredAnswer({
+      situation: 'A',
+      recommendation: 'B',
+      explanation: 'C',
+      expectedBenefit: 'D',
+      estimatedImpact: 'E',
+      limitationsAndUncertainty: 'F',
+    }),
+    true
+  );
+  assert.equal(isValidAssistantStructuredAnswer({ situation: 'Only one field' }), false);
+  assert.equal(isValidAssistantStructuredAnswer({ situation: '   ' }), false);
+
+  assert.equal(
+    isValidGeocodingResult({
+      id: 'geo-1',
+      name: 'Lonavala',
+      region: 'Maharashtra',
+      country: 'India',
+      latitude: 18.75,
+      longitude: 73.4,
+      timezone: 'Asia/Kolkata',
+    }),
+    true
+  );
+  assert.equal(isValidGeocodingResult({ id: 'bad', name: '', latitude: '18', longitude: 73 }), false);
+
+  const prevFetch = globalThis.fetch;
+  try {
+    // 1. fetchAirQuality throws a clean error when proxy returns non-JSON 502 HTML
+    globalThis.fetch = (async () =>
+      new Response('<html>502 Bad Gateway</html>', {
+        status: 502,
+        headers: { 'Content-Type': 'text/html' },
+      })) as typeof fetch;
+
+    await assert.rejects(
+      () => fetchAirQuality(INDIAN_METRO_PRESETS[0], true),
+      /HTTP 502/
+    );
+
+    // 2. queryAirAssistant falls back cleanly (never claiming GEMINI_AI) on incomplete structured JSON
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          source: 'GEMINI_AI',
+          structured: { situation: 'Partial response only' },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )) as typeof fetch;
+
+    const assistantRes = await queryAirAssistant(
+      'Is outdoor walking safe?',
+      validDemo,
+      DEFAULT_PREFERENCES,
+      INDIAN_METRO_PRESETS[0]
+    );
+    assert.equal(assistantRes.source, 'RULE_BASED_FALLBACK');
+    assert.ok(assistantRes.structured.recommendation.length > 0);
+    assert.ok(assistantRes.notice && assistantRes.notice.length > 0);
+
+    // 3. searchCityLocations filters out malformed items from upstream arrays
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          results: [
+            { id: 'bad-1', name: '', latitude: 18.7, longitude: 73.4 },
+            {
+              id: 'geo-ok',
+              name: 'Lonavala',
+              region: 'Maharashtra',
+              country: 'India',
+              latitude: 18.7557,
+              longitude: 73.4091,
+              timezone: 'Asia/Kolkata',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )) as typeof fetch;
+
+    const cities = await searchCityLocations('Lonavala');
+    assert.equal(cities.length, 1);
+    assert.equal(cities[0].name, 'Lonavala');
+  } finally {
+    globalThis.fetch = prevFetch;
+  }
+});
+
+test('Code Quality & Reliability: readStorage type-shape guards, schema evolution merge, and ErrorBoundary passthrough', () => {
+  const { mockStorage } = createMockLocalStorage();
+  const prevWindow = (globalThis as { window?: unknown }).window;
+  (globalThis as { window?: unknown }).window = { localStorage: mockStorage };
+  try {
+    // Wrong JSON type (object stored where array expected) -> safely falls back
+    mockStorage.setItem(STORAGE_KEYS.COMMUNITY_REPORTS, JSON.stringify({ not: 'an-array' }));
+    const reports = readStorage(STORAGE_KEYS.COMMUNITY_REPORTS, SEED_COMMUNITY_REPORTS);
+    assert.equal(Array.isArray(reports), true);
+    assert.equal(reports.length, SEED_COMMUNITY_REPORTS.length);
+
+    // Partial older preferences object -> missing keys filled from DEFAULT_PREFERENCES
+    mockStorage.setItem(STORAGE_KEYS.PREFERENCES, JSON.stringify({ theme: 'dark' }));
+    const mergedPrefs = readStorage(STORAGE_KEYS.PREFERENCES, DEFAULT_PREFERENCES);
+    assert.equal(mergedPrefs.theme, 'dark');
+    assert.equal(mergedPrefs.commuteMode, DEFAULT_PREFERENCES.commuteMode);
+    assert.equal(Array.isArray(mergedPrefs.householdAgeGroups), true);
+
+    // Primitive stored where object expected -> falls back safely
+    mockStorage.setItem(STORAGE_KEYS.PREFERENCES, JSON.stringify(42));
+    assert.equal(readStorage(STORAGE_KEYS.PREFERENCES, DEFAULT_PREFERENCES).theme, 'light');
+  } finally {
+    (globalThis as { window?: unknown }).window = prevWindow;
+  }
+
+  // ErrorBoundary renders healthy children cleanly
+  const boundaryHtml = renderToStaticMarkup(
+    React.createElement(ErrorBoundary, {
+      heading: 'test view',
+      children: React.createElement('div', null, 'Healthy VayuMitra View'),
+    })
+  );
+  assert.ok(boundaryHtml.includes('Healthy VayuMitra View'));
+});
+
 
 
 

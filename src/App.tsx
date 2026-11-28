@@ -12,68 +12,7 @@ import { GreenTravelSection } from './components/sections/GreenTravelSection';
 import { ImpactCalculatorSection } from './components/sections/ImpactCalculatorSection';
 import { CommunityInsightsSection } from './components/sections/CommunityInsightsSection';
 import { SettingsSection } from './components/sections/SettingsSection';
-
-interface ErrorBoundaryProps {
-  resetKey: string;
-  onReturnDashboard: () => void;
-  children: React.ReactNode;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-}
-
-class SectionErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false };
-
-  static getDerivedStateFromError(): ErrorBoundaryState {
-    return { hasError: true };
-  }
-
-  componentDidUpdate(prevProps: ErrorBoundaryProps) {
-    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false });
-    }
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <section
-          role="alert"
-          className="bg-white dark:bg-[#131E1A] border border-red-300 dark:border-red-900 rounded-lg p-6 space-y-4 max-w-xl"
-        >
-          <h1 className="text-lg font-semibold text-[#16211D] dark:text-[#EDF3F0]">
-            Something went wrong displaying this section
-          </h1>
-          <p className="text-sm text-[#4E5E58] dark:text-[#9BB0A7]">
-            Your locally saved preferences and schedules remain safe. Try reloading this view or returning to the Air Quality Dashboard.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => this.setState({ hasError: false })}
-              className="px-4 py-2 rounded-md bg-[#1B4332] hover:bg-[#2D6A4F] text-white text-sm font-medium min-h-[40px]"
-            >
-              Retry Section
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                this.setState({ hasError: false });
-                this.props.onReturnDashboard();
-              }}
-              className="px-4 py-2 rounded-md border border-[#DCE5E0] dark:border-[#263832] text-sm font-medium text-[#16211D] dark:text-[#EDF3F0] min-h-[40px]"
-            >
-              Return to Dashboard
-            </button>
-          </div>
-        </section>
-      );
-    }
-    return this.props.children;
-  }
-}
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 const ActiveSectionRouter: React.FC = () => {
   const { activeSection, setActiveSection } = useApp();
@@ -104,28 +43,39 @@ const ActiveSectionRouter: React.FC = () => {
   };
 
   return (
-    <SectionErrorBoundary
+    <ErrorBoundary
       resetKey={activeSection}
-      onReturnDashboard={() => setActiveSection('dashboard')}
+      heading="Something went wrong displaying this section"
+      description="Your locally saved preferences and schedules remain safe. Try reloading this view or returning to the Air Quality Dashboard."
+      secondaryLabel="Return to Dashboard"
+      onSecondaryAction={() => setActiveSection('dashboard')}
     >
       {renderSection()}
-    </SectionErrorBoundary>
+    </ErrorBoundary>
   );
 };
 
 const RootRouter: React.FC = () => {
-  const { viewMode } = useApp();
+  const { viewMode, openHome } = useApp();
 
-  if (viewMode === 'home') {
-    return <HomePage />;
-  }
-  if (viewMode === 'auth') {
-    return <AuthPage />;
-  }
   return (
-    <AppShell>
-      <ActiveSectionRouter />
-    </AppShell>
+    <ErrorBoundary
+      resetKey={viewMode}
+      heading="Something went wrong loading VayuMitra"
+      description="Your locally saved settings remain intact. Retry loading or return to the homepage."
+      secondaryLabel="Go to Homepage"
+      onSecondaryAction={openHome}
+    >
+      {viewMode === 'home' ? (
+        <HomePage />
+      ) : viewMode === 'auth' ? (
+        <AuthPage />
+      ) : (
+        <AppShell>
+          <ActiveSectionRouter />
+        </AppShell>
+      )}
+    </ErrorBoundary>
   );
 };
 

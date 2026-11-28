@@ -54,6 +54,7 @@ function createRateLimiter(maxRequests: number, windowMs: number, maxTrackedKeys
 
 const isAssistantRateLimited = createRateLimiter(20, 60 * 1000);
 const isGeocodeRateLimited = createRateLimiter(40, 60 * 1000);
+const isAirQualityRateLimited = createRateLimiter(60, 60 * 1000);
 const isForceRefreshRateLimited = createRateLimiter(15, 60 * 1000);
 const isPushSubRateLimited = createRateLimiter(15, 60 * 1000);
 
@@ -77,6 +78,7 @@ function getPushCapabilitySummary() {
 async function startServer() {
   const app = express();
   app.disable('x-powered-by');
+  app.set('trust proxy', 1);
 
   // Baseline HTTP security headers (iframe-compatible for preview environments; geolocation permitted for Use GPS)
   app.use((_req, res, next) => {
@@ -161,7 +163,12 @@ async function startServer() {
     const timezone = typeof req.query.timezone === 'string' ? req.query.timezone.trim().slice(0, 60) : 'UTC';
     const id = typeof req.query.id === 'string' ? req.query.id.trim().slice(0, 60) : `loc-${lat.toFixed(2)}-${lon.toFixed(2)}`;
     const forceRefresh = req.query.forceRefresh === 'true';
-    if (forceRefresh && isForceRefreshRateLimited(req.ip || 'local')) {
+    const clientIp = req.ip || 'local';
+    if (isAirQualityRateLimited(clientIp)) {
+      res.status(429).json({ error: 'Too many air quality requests. Please wait a moment and try again.' });
+      return;
+    }
+    if (forceRefresh && isForceRefreshRateLimited(clientIp)) {
       res.status(429).json({ error: 'Too many live refresh requests. Please wait a moment before refreshing again.' });
       return;
     }
@@ -299,6 +306,17 @@ async function startServer() {
       code: result.code,
       message: result.message,
     });
+  });
+
+  // Ensure unknown /api/* paths return structured JSON 404 rather than HTML SPA fallback
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ code: 'NOT_FOUND', error: 'API endpoint not found.' });
+  });
+
+  // Final Express error middleware — never leak internal stack traces or secrets
+  app.use((_err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (res.headersSent) return;
+    res.status(500).json({ code: 'INTERNAL_ERROR', error: 'An unexpected server error occurred.' });
   });
 
   const httpServer = http.createServer(app);

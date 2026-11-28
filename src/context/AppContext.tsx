@@ -16,27 +16,17 @@ import type {
   NotificationHistoryEntry,
   NotificationPermissionState,
   NotificationSettings,
-  NotificationTrackerState,
   UserPreferences,
 } from '../types';
-import { fetchAirQuality, fetchNotificationCapabilities } from '../services/api';
+import { fetchAirQuality } from '../services/api';
 import { generateSmartDailyPlan } from '../utils/calculations';
-import {
-  buildTestNotificationEntry,
-  derivePermissionState,
-  dispatchBrowserNotification,
-  evaluateSmartAirNotification,
-  getRawBrowserPermission,
-  requestBrowserNotificationPermission,
-} from '../utils/notifications';
 import { AMBIENT_SOUND_SECTIONS, ambientWindEngine } from '../utils/soundEngine';
+import { useSmartAirAlerts } from '../hooks/useSmartAirAlerts';
 import {
   clearAllVayumitraStorage,
   DEFAULT_ALERT_THRESHOLDS,
   DEFAULT_IMPACT_LOGS,
   DEFAULT_IMPACT_ROUTINE,
-  DEFAULT_NOTIFICATION_SETTINGS,
-  DEFAULT_NOTIFICATION_TRACKER,
   DEFAULT_PLAN_INPUTS,
   DEFAULT_PREFERENCES,
   INDIAN_METRO_PRESETS,
@@ -129,6 +119,12 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+function scrollWindowToTop(): void {
+  if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+}
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [authSession, setAuthSession] = useState<AuthSession | null>(() =>
     readStorage<AuthSession | null>(STORAGE_KEYS.AUTH_SESSION, null)
@@ -137,7 +133,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     readStorage<AuthSession | null>(STORAGE_KEYS.AUTH_SESSION, null) ? 'app' : 'home'
   );
   const [authInitialTab, setAuthInitialTab] = useState<'login' | 'signup'>('login');
-
   const [activeSection, setActiveSection] = useState<NavSection>('dashboard');
 
   const [preferences, setPreferences] = useState<UserPreferences>(() =>
@@ -150,6 +145,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       preferences.defaultLocation || INDIAN_METRO_PRESETS[0]
     )
   );
+  const activeLocationRef = useRef<LocationPreset>(activeLocation);
+  activeLocationRef.current = activeLocation;
 
   const [airQuality, setAirQuality] = useState<AirQualityPayload | null>(null);
   const [airQualityLoading, setAirQualityLoading] = useState<boolean>(true);
@@ -201,38 +198,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [alertThresholds, setAlertThresholds] = useState<AlertThresholds>(() =>
     readStorage<AlertThresholds>(STORAGE_KEYS.ALERT_THRESHOLDS, DEFAULT_ALERT_THRESHOLDS)
   );
-
-  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(() =>
-    readStorage<NotificationSettings>(
-      STORAGE_KEYS.NOTIFICATION_SETTINGS,
-      DEFAULT_NOTIFICATION_SETTINGS
-    )
-  );
-
-  const [notificationHistory, setNotificationHistory] = useState<NotificationHistoryEntry[]>(() =>
-    readStorage<NotificationHistoryEntry[]>(STORAGE_KEYS.NOTIFICATION_HISTORY, [])
-  );
-
-  const [notificationTracker, setNotificationTracker] = useState<NotificationTrackerState>(() =>
-    readStorage<NotificationTrackerState>(
-      STORAGE_KEYS.NOTIFICATION_TRACKER,
-      DEFAULT_NOTIFICATION_TRACKER
-    )
-  );
-  const notificationTrackerRef = useRef<NotificationTrackerState>(notificationTracker);
-
-  const [rawNotificationPermission, setRawNotificationPermission] = useState<
-    NotificationPermission | 'unsupported'
-  >(() => getRawBrowserPermission());
-
-  const [notificationCapabilities, setNotificationCapabilities] = useState<NotificationCapabilities>({
-    pageActiveSupported: true,
-    backgroundPushConfigured: false,
-    backgroundPushStatus: 'NOT_CONFIGURED',
-    vapidPublicKey: null,
-    reason:
-      'Background Web Push (VAPID keys, push subscription storage, and a background delivery service) is not configured in this environment. Page-active Browser Notifications work while VayuMitra is open.',
-  });
 
   const [weeklyChallenge, setWeeklyChallenge] = useState<Record<string, boolean>>(() =>
     readStorage<Record<string, boolean>>(STORAGE_KEYS.WEEKLY_CHALLENGE, {})
@@ -305,120 +270,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Initial load for active location (controlled single call)
   useEffect(() => {
-    void loadAirQuality(activeLocation, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void loadAirQuality(activeLocationRef.current, false);
+  }, [loadAirQuality]);
 
-  // Load honest backend push notification capability status once on mount
-  useEffect(() => {
-    let active = true;
-    void fetchNotificationCapabilities().then((caps) => {
-      if (active) setNotificationCapabilities(caps);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  // Keep raw browser notification permission synced if changed in browser site settings
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const syncPermission = () => {
-      setRawNotificationPermission(getRawBrowserPermission());
-    };
-    window.addEventListener('focus', syncPermission);
-    document.addEventListener('visibilitychange', syncPermission);
-    return () => {
-      window.removeEventListener('focus', syncPermission);
-      document.removeEventListener('visibilitychange', syncPermission);
-    };
-  }, []);
-
-  const notificationPermissionState = useMemo(
-    () => derivePermissionState(rawNotificationPermission, notificationSettings.enabled),
-    [rawNotificationPermission, notificationSettings.enabled]
-  );
-
-  // Evaluate Smart Air Alerts whenever fresh live air-quality data arrives for the active location
-  useEffect(() => {
-    if (
-      !airQuality ||
-      airQuality.location.id !== activeLocation.id ||
-      !notificationSettings.enabled ||
-      rawNotificationPermission !== 'granted'
-    ) {
-      return;
-    }
-
-    const result = evaluateSmartAirNotification({
-      payload: airQuality,
-      thresholds: alertThresholds,
-      settings: notificationSettings,
-      rawPermission: rawNotificationPermission,
-      tracker: notificationTrackerRef.current,
-    });
-
-    const prevJson = JSON.stringify(notificationTrackerRef.current);
-    const nextJson = JSON.stringify(result.nextTracker);
-    if (prevJson !== nextJson) {
-      notificationTrackerRef.current = result.nextTracker;
-      setNotificationTracker(result.nextTracker);
-      writeStorage(STORAGE_KEYS.NOTIFICATION_TRACKER, result.nextTracker);
-    }
-
-    if (result.shouldNotify && result.entry) {
-      const dispatch = dispatchBrowserNotification({
-        title: result.entry.title,
-        body: result.entry.body,
-        tag: `vayumitra-${result.entry.kind}-${airQuality.location.id}`,
-      });
-      const fullEntry: NotificationHistoryEntry = {
-        ...result.entry,
-        deliveredViaBrowser: dispatch.delivered,
-      };
-      setNotificationHistory((prev) => {
-        const next = [fullEntry, ...prev].slice(0, 25);
-        writeStorage(STORAGE_KEYS.NOTIFICATION_HISTORY, next);
-        return next;
-      });
-      showToast(
-        result.entry.kind === 'improvement'
-          ? `VayuMitra Update: Air quality in ${result.entry.locationName} improved to ${result.entry.category}.`
-          : `VayuMitra Air Alert: ${result.entry.locationName} reached ${result.entry.category}.`
-      );
-    }
-  }, [airQuality, alertThresholds, notificationSettings, rawNotificationPermission, showToast]);
-
-  // Visibility-aware periodic polling while page-active alerts are enabled (no duplicate requests)
-  const activeLocationRef = useRef(activeLocation);
-  activeLocationRef.current = activeLocation;
-  const airQualityLoadingRef = useRef(airQualityLoading);
-  airQualityLoadingRef.current = airQualityLoading;
-
-  useEffect(() => {
-    if (!notificationSettings.enabled || rawNotificationPermission !== 'granted') return;
-    if (typeof window === 'undefined') return;
-
-    const intervalMinutes = Math.max(5, Math.min(120, notificationSettings.pollIntervalMinutes || 15));
-    const intervalId = window.setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-        return;
-      }
-      if (airQualityLoadingRef.current) {
-        return;
-      }
-      void loadAirQuality(activeLocationRef.current, true);
-    }, intervalMinutes * 60 * 1000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [
-    notificationSettings.enabled,
-    notificationSettings.pollIntervalMinutes,
+  const {
+    notificationSettings,
+    notificationPermissionState,
     rawNotificationPermission,
+    notificationHistory,
+    notificationCapabilities,
+    enableAirAlerts,
+    disableAirAlerts,
+    updateNotificationSettings,
+    sendTestAirNotification,
+    clearNotificationHistory,
+    resetSmartAirAlerts,
+  } = useSmartAirAlerts({
+    activeLocation,
+    airQuality,
+    airQualityLoading,
+    alertThresholds,
     loadAirQuality,
-  ]);
+    showToast,
+  });
 
   // Keep Smart Daily Planner synchronized whenever the active location changes or fresh air-quality loads
   useEffect(() => {
@@ -457,30 +331,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const openHome = useCallback(() => {
     setViewMode('home');
-    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollWindowToTop();
   }, []);
 
   const openAuth = useCallback((tab: 'login' | 'signup' = 'login') => {
     setAuthInitialTab(tab);
     setViewMode('auth');
-    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollWindowToTop();
   }, []);
 
-  const continueAsGuest = useCallback(
-    (targetSection: NavSection = 'dashboard') => {
-      const guest: AuthSession = {
-        mode: 'guest',
-        displayName: 'Guest',
-        signedInAt: new Date().toISOString(),
-      };
-      setAuthSession(guest);
-      writeStorage(STORAGE_KEYS.AUTH_SESSION, guest);
-      setActiveSection(targetSection);
-      setViewMode('app');
-      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
-    },
-    []
-  );
+  const continueAsGuest = useCallback((targetSection: NavSection = 'dashboard') => {
+    const guest: AuthSession = {
+      mode: 'guest',
+      displayName: 'Guest',
+      signedInAt: new Date().toISOString(),
+    };
+    setAuthSession(guest);
+    writeStorage(STORAGE_KEYS.AUTH_SESSION, guest);
+    setActiveSection(targetSection);
+    setViewMode('app');
+    scrollWindowToTop();
+  }, []);
 
   const enterWorkspace = useCallback(
     (targetSection: NavSection = 'dashboard') => {
@@ -490,7 +361,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       setActiveSection(targetSection);
       setViewMode('app');
-      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      scrollWindowToTop();
     },
     [authSession, continueAsGuest]
   );
@@ -502,7 +373,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setActiveSection('dashboard');
       setViewMode('app');
       showToast(`Signed in as ${session.displayName} (local demo session).`);
-      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      scrollWindowToTop();
     },
     [showToast]
   );
@@ -513,12 +384,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         window.localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
       } catch {
-        // ignore
+        // Ignore restricted storage errors
       }
     }
     setViewMode('home');
     showToast('Signed out of VAYUMITRA.');
-    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollWindowToTop();
   }, [showToast]);
 
   const selectLocation = useCallback(
@@ -534,7 +405,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         Math.abs(stamped.longitude - prev.longitude) > 0.0001;
 
       if (isDifferentLocation) {
-        // Clear previous city's readings immediately so stale data (e.g. Delhi) never leaks into the new city
         setAirQuality(null);
         setAirQualityError(null);
       }
@@ -600,15 +470,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setImpactLogs(DEFAULT_IMPACT_LOGS);
     setCommunityReports(SEED_COMMUNITY_REPORTS);
     setAlertThresholds(DEFAULT_ALERT_THRESHOLDS);
-    setNotificationSettings(DEFAULT_NOTIFICATION_SETTINGS);
-    setNotificationHistory([]);
-    notificationTrackerRef.current = DEFAULT_NOTIFICATION_TRACKER;
-    setNotificationTracker(DEFAULT_NOTIFICATION_TRACKER);
+    resetSmartAirAlerts();
     setWeeklyChallenge({});
     setAuthSession(null);
     void loadAirQuality(INDIAN_METRO_PRESETS[0], false);
     showToast('All locally stored preferences, plans, checklists, alerts, challenges, and demo accounts were cleared.');
-  }, [loadAirQuality, showToast]);
+  }, [loadAirQuality, resetSmartAirAlerts, showToast]);
 
   const addAssistantMessage = useCallback((msg: AssistantMessage) => {
     setAssistantHistory((prev) => {
@@ -749,161 +616,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAlertThresholds(DEFAULT_ALERT_THRESHOLDS);
     writeStorage(STORAGE_KEYS.ALERT_THRESHOLDS, DEFAULT_ALERT_THRESHOLDS);
     showToast('Alert thresholds reset to defaults.');
-  }, [showToast]);
-
-  const enableAirAlerts = useCallback(async () => {
-    const currentRaw = getRawBrowserPermission();
-    setRawNotificationPermission(currentRaw);
-
-    if (currentRaw === 'unsupported') {
-      return {
-        ok: false,
-        state: 'unsupported' as NotificationPermissionState,
-        message: 'This browser does not support desktop/web Notification API alerts.',
-      };
-    }
-
-    if (currentRaw === 'denied') {
-      setNotificationSettings((prev) => {
-        const next = { ...prev, enabled: false };
-        writeStorage(STORAGE_KEYS.NOTIFICATION_SETTINGS, next);
-        return next;
-      });
-      return {
-        ok: false,
-        state: 'blocked' as NotificationPermissionState,
-        message:
-          'Notifications are blocked in your browser site settings. Allow notifications for this site and try again.',
-      };
-    }
-
-    const permission =
-      currentRaw === 'granted' ? 'granted' : await requestBrowserNotificationPermission();
-    setRawNotificationPermission(permission);
-
-    if (permission === 'granted') {
-      setNotificationSettings((prev) => {
-        const next = { ...prev, enabled: true };
-        writeStorage(STORAGE_KEYS.NOTIFICATION_SETTINGS, next);
-        return next;
-      });
-      showToast(`Smart Air Alerts enabled for ${activeLocation.name}.`);
-      return {
-        ok: true,
-        state: 'enabled' as NotificationPermissionState,
-        message: `Smart Air Alerts enabled. VayuMitra will notify you while open when ${activeLocation.name} crosses your configured thresholds.`,
-      };
-    }
-
-    if (permission === 'denied') {
-      setNotificationSettings((prev) => {
-        const next = { ...prev, enabled: false };
-        writeStorage(STORAGE_KEYS.NOTIFICATION_SETTINGS, next);
-        return next;
-      });
-      return {
-        ok: false,
-        state: 'blocked' as NotificationPermissionState,
-        message:
-          'Notification permission was blocked. You can change this anytime in your browser site settings.',
-      };
-    }
-
-    return {
-      ok: false,
-      state: 'disabled' as NotificationPermissionState,
-      message: 'Permission prompt was dismissed. Click "Enable Air Quality Alerts" anytime to try again.',
-    };
-  }, [activeLocation.name, showToast]);
-
-  const disableAirAlerts = useCallback(() => {
-    setNotificationSettings((prev) => {
-      const next = { ...prev, enabled: false };
-      writeStorage(STORAGE_KEYS.NOTIFICATION_SETTINGS, next);
-      return next;
-    });
-    showToast('Smart Air Alerts disabled.');
-  }, [showToast]);
-
-  const updateNotificationSettings = useCallback((patch: Partial<NotificationSettings>) => {
-    setNotificationSettings((prev) => {
-      const next: NotificationSettings = {
-        ...prev,
-        ...patch,
-        cooldownMinutes: Math.max(
-          5,
-          Math.min(1440, Math.round(patch.cooldownMinutes ?? prev.cooldownMinutes))
-        ),
-        pollIntervalMinutes: Math.max(
-          5,
-          Math.min(120, Math.round(patch.pollIntervalMinutes ?? prev.pollIntervalMinutes))
-        ),
-      };
-      writeStorage(STORAGE_KEYS.NOTIFICATION_SETTINGS, next);
-      return next;
-    });
-  }, []);
-
-  const sendTestAirNotification = useCallback(() => {
-    const currentRaw = getRawBrowserPermission();
-    setRawNotificationPermission(currentRaw);
-
-    if (currentRaw === 'unsupported') {
-      return {
-        ok: false,
-        message: 'This browser does not support Notification API alerts.',
-      };
-    }
-    if (currentRaw === 'denied') {
-      return {
-        ok: false,
-        message: 'Notifications are blocked by your browser. Unblock this site in browser settings first.',
-      };
-    }
-    if (currentRaw !== 'granted') {
-      return {
-        ok: false,
-        message: 'Click "Enable Air Quality Alerts" first to grant browser notification permission.',
-      };
-    }
-
-    const baseEntry = buildTestNotificationEntry(activeLocation.name, airQuality);
-    const dispatch = dispatchBrowserNotification({
-      title: baseEntry.title,
-      body: baseEntry.body,
-      tag: `vayumitra-test-${activeLocation.id}`,
-    });
-
-    const fullEntry: NotificationHistoryEntry = {
-      ...baseEntry,
-      deliveredViaBrowser: dispatch.delivered,
-    };
-    setNotificationHistory((prev) => {
-      const next = [fullEntry, ...prev].slice(0, 25);
-      writeStorage(STORAGE_KEYS.NOTIFICATION_HISTORY, next);
-      return next;
-    });
-
-    if (dispatch.delivered) {
-      showToast('Test notification sent.');
-      return {
-        ok: true,
-        message: `Test notification sent for ${activeLocation.name} and logged in notification history.`,
-      };
-    }
-
-    return {
-      ok: false,
-      message:
-        dispatch.error ||
-        'Browser did not display the notification (this can happen inside restricted preview iframes). The test entry was logged below.',
-    };
-  }, [activeLocation.id, activeLocation.name, airQuality, showToast]);
-
-  const clearNotificationHistory = useCallback(() => {
-    setNotificationHistory([]);
-    writeStorage(STORAGE_KEYS.NOTIFICATION_HISTORY, []);
-    showToast('Notification history cleared.');
   }, [showToast]);
 
   const toggleChallengeAction = useCallback((id: string) => {
